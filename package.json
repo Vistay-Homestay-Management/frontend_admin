@@ -1,0 +1,19 @@
+{
+  "name": "@vistay/admin",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace @vistay/admin-web",
+    "dev:mobile": "npm run start --workspace @vistay/admin-mobile",
+    "build": "npm run build --workspace @vistay/admin-web",
+    "lint": "npm run lint --if-present --workspaces",
+    "test": "npm run test --if-present --workspaces"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
