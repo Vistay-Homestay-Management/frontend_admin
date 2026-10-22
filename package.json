@@ -10,8 +10,12 @@
     "dev:web": "npm run dev --workspace @vistay/admin-web",
     "dev:mobile": "npm run start --workspace @vistay/admin-mobile",
     "build": "npm run build --workspace @vistay/admin-web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --if-present --workspaces",
     "test": "npm run test --if-present --workspaces"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.17"
   },
   "engines": {
     "node": ">=24"
