@@ -92,6 +92,7 @@ export async function fetchViewer(
       accept: 'application/graphql-response+json, application/json',
       authorization: `Bearer ${accessToken}`,
       'content-type': 'application/json',
+      'x-csrf-token': '1',
     },
     body: JSON.stringify({ operationName: 'Viewer', query: VIEWER_QUERY }),
     signal,
@@ -231,6 +232,7 @@ export async function consumeNotificationStream({
       accept: 'text/event-stream',
       authorization: `Bearer ${accessToken}`,
       'content-type': 'application/json',
+      'x-csrf-token': '1',
     },
     body: JSON.stringify({
       operationName: 'NotificationStream',

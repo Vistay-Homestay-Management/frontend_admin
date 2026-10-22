@@ -47,7 +47,10 @@ describe('GraphQL client', () => {
     const viewer = await fetchViewer('/graphql', 'access-token', undefined, fetcher)
     expect(viewer.profileId).toBe('profile-1')
     expect(fetcher).toHaveBeenCalledWith('/graphql', expect.objectContaining({
-      headers: expect.objectContaining({ authorization: 'Bearer access-token' }),
+      headers: expect.objectContaining({
+        authorization: 'Bearer access-token',
+        'x-csrf-token': '1',
+      }),
     }))
   })
 
@@ -56,8 +59,10 @@ describe('GraphQL client', () => {
       data: { notificationStream: { cursor: '42', notification: welcome } },
     })}\n\nevent: complete\ndata: {}\n\n`
     let requestBody = ''
+    let requestHeaders: HeadersInit | undefined
     const fetcher: typeof fetch = async (_input, init) => {
       requestBody = String(init?.body)
+      requestHeaders = init?.headers
       return new Response(body, {
       status: 200,
       headers: { 'content-type': 'text/event-stream' },
@@ -76,6 +81,7 @@ describe('GraphQL client', () => {
 
     expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ cursor: '42' }))
     expect(JSON.parse(requestBody).variables).toEqual({ afterCursor: '41' })
+    expect(requestHeaders).toEqual(expect.objectContaining({ 'x-csrf-token': '1' }))
   })
 })
 
