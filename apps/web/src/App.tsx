@@ -1,70 +1,233 @@
-import { useRef } from 'react'
-import { useGSAP } from '@gsap/react'
-import gsap from 'gsap'
-import { ArrowUpRight, Bell, Buildings, CalendarCheck, ChartLine, CirclesThree, CurrencyCircleDollar, MagnifyingGlass, UsersThree, Wrench } from '@phosphor-icons/react'
+import {
+  ArrowClockwise,
+  Bell,
+  CheckCircle,
+  Key,
+  LockKey,
+  ShieldCheck,
+  SignOut,
+  SpinnerGap,
+  UserCircle,
+  WarningCircle,
+  WifiHigh,
+} from '@phosphor-icons/react'
+import { useAuth } from 'react-oidc-context'
+import type { Notification } from '@vistay/admin-api-client'
 import './App.css'
+import type { RuntimeConfig } from './lib/config'
+import { useNotificationStream, useViewer, type StreamStatus } from './lib/useBackofficeData'
 
-const occupancy = [64, 78, 72, 88, 82, 94, 86]
+interface AppProps {
+  config: RuntimeConfig
+}
 
-function App() {
-  const root = useRef<HTMLElement>(null)
-  useGSAP(() => {
-    gsap.from('.enter', { y: 24, opacity: 0, duration: .65, stagger: .07, ease: 'power3.out' })
-    gsap.from('.chart-bar i', { scaleY: 0, transformOrigin: 'bottom', duration: .8, stagger: .08, ease: 'power3.out', delay: .3 })
-  }, { scope: root })
+const streamLabels: Record<StreamStatus, string> = {
+  connecting: 'Đang kết nối',
+  live: 'Đang trực tuyến',
+  retrying: 'Đang kết nối lại',
+  error: 'Mất kết nối',
+}
+
+function LoadingScreen({ label }: { label: string }) {
+  return (
+    <main className="centered-state" aria-live="polite">
+      <SpinnerGap className="spinner" aria-hidden />
+      <h1>{label}</h1>
+      <p>ViStay đang thiết lập phiên làm việc an toàn.</p>
+    </main>
+  )
+}
+
+function LoginScreen({ error, onLogin }: { error?: string; onLogin: () => void }) {
+  return (
+    <main className="login-shell">
+      <section className="login-copy">
+        <a className="wordmark" href="/" aria-label="ViStay Backoffice">ViStay<span>.</span></a>
+        <p className="eyebrow">BACKOFFICE / EPIC 01</p>
+        <h1>Một cửa vào.<br />Đúng quyền hạn.</h1>
+        <p className="lead">
+          Đăng nhập bằng tài khoản vận hành để xem hồ sơ phân quyền và nhận thông báo
+          bảo mật theo thời gian thực.
+        </p>
+        {error && <div className="error-banner" role="alert"><WarningCircle />{error}</div>}
+        <button className="primary-button" onClick={onLogin}>
+          Đăng nhập Backoffice <Key weight="bold" />
+        </button>
+      </section>
+      <aside className="security-panel">
+        <ShieldCheck weight="duotone" aria-hidden />
+        <div>
+          <span>Đăng nhập an toàn</span>
+          <h2>Authorization Code + PKCE</h2>
+          <p>
+            Mật khẩu chỉ được nhập tại Backoffice Realm. Ứng dụng không nhúng client secret
+            và chỉ gửi access token đến GraphQL Gateway đã cấu hình.
+          </p>
+        </div>
+        <ul>
+          <li><CheckCircle /> Chống đánh cắp authorization code</li>
+          <li><CheckCircle /> Phiên web chỉ lưu trong session hiện tại</li>
+          <li><CheckCircle /> Quyền được kiểm tra lại ở từng service</li>
+        </ul>
+      </aside>
+    </main>
+  )
+}
+
+function NotificationItem({ notification }: { notification: Notification }) {
+  const createdAt = new Intl.DateTimeFormat('vi-VN', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(new Date(notification.createdAt))
 
   return (
-    <main className="admin" ref={root}>
-      <aside>
-        <a className="mark" href="#">V<span>.</span></a>
-        <nav>
-          <a className="active" href="#" aria-label="Tổng quan"><CirclesThree /></a>
-          <a href="#" aria-label="Căn hộ"><Buildings /></a>
-          <a href="#" aria-label="Booking"><CalendarCheck /></a>
-          <a href="#" aria-label="Khách hàng"><UsersThree /></a>
-          <a href="#" aria-label="Vận hành"><Wrench /></a>
-          <a href="#" aria-label="Tài chính"><CurrencyCircleDollar /></a>
+    <article className="notification-card">
+      <div className={`notification-icon ${notification.category.toLowerCase()}`}>
+        {notification.category === 'SECURITY' ? <LockKey /> : <CheckCircle />}
+      </div>
+      <div className="notification-copy">
+        <div><span>{notification.category === 'SECURITY' ? 'Bảo mật' : 'Chào mừng'}</span><time>{createdAt}</time></div>
+        <h3>{notification.title}</h3>
+        <p>{notification.body}</p>
+        <small>{notification.channels.join(' · ')}</small>
+      </div>
+    </article>
+  )
+}
+
+function initials(name: string): string {
+  return name.split(/\s+/).filter(Boolean).slice(-2).map((part) => part[0]).join('').toUpperCase()
+}
+
+function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: string }) {
+  const auth = useAuth()
+  const profile = useViewer(config.graphqlUrl, accessToken)
+  const stream = useNotificationStream(config.graphqlUrl, accessToken, profile.viewer?.accountId)
+  const displayName = profile.viewer?.displayName ?? auth.user?.profile.preferred_username ?? 'Backoffice'
+
+  return (
+    <main className="admin-shell">
+      <aside className="rail">
+        <a className="rail-mark" href="/" aria-label="ViStay">V<span>.</span></a>
+        <nav aria-label="Điều hướng chính">
+          <a className="active" href="#profile"><UserCircle /><span>Hồ sơ</span></a>
+          <a href="#notifications"><Bell /><span>Thông báo</span></a>
+          <a href="#security"><ShieldCheck /><span>Bảo mật</span></a>
         </nav>
-        <button className="avatar">HP</button>
+        <button className="rail-avatar" title={displayName}>{initials(displayName)}</button>
       </aside>
-      <section className="canvas">
-        <header className="enter">
-          <div><span>Trung tâm vận hành</span><h1>Nhịp ViStay hôm nay.</h1></div>
-          <div className="tools"><label><MagnifyingGlass /><input aria-label="Tìm kiếm" placeholder="Tìm booking, căn hộ..." /></label><button aria-label="Thông báo"><Bell /></button></div>
+
+      <section className="workspace">
+        <header className="topbar">
+          <div>
+            <p className="eyebrow">TRUNG TÂM VẬN HÀNH</p>
+            <h1>Xin chào, {displayName}.</h1>
+          </div>
+          <button className="secondary-button" onClick={() => void auth.signoutRedirect()}>
+            Đăng xuất <SignOut />
+          </button>
         </header>
 
-        <section className="signal enter">
-          <article><span>Nhận phòng hôm nay</span><strong>14</strong><small>11 đã sẵn sàng</small></article>
-          <article><span>Căn đang khai thác</span><strong>86</strong><small>4 căn đang bảo trì</small></article>
-          <article><span>Yêu cầu mở</span><strong>9</strong><small className="warn">2 yêu cầu quá hạn</small></article>
-          <article className="accent"><span>Doanh thu tháng</span><strong>1,28 tỷ</strong><small><ChartLine /> 108% kế hoạch</small></article>
-        </section>
+        {profile.status === 'loading' && (
+          <section className="inline-state" aria-live="polite"><SpinnerGap className="spinner" />Đang tải hồ sơ từ Federation…</section>
+        )}
 
-        <section className="dashboard-grid">
-          <article className="occupancy enter">
-            <div className="block-title"><div><h2>Công suất 7 ngày</h2><p>Tỷ lệ căn đủ điều kiện bán đã được đặt.</p></div><strong>82,4%</strong></div>
-            <div className="chart">
-              {occupancy.map((value, index) => <div className="chart-bar" key={index}><i style={{ height: value + '%' }} /><span>{['T2','T3','T4','T5','T6','T7','CN'][index]}</span></div>)}
-            </div>
-          </article>
-          <article className="handover enter">
-            <div className="block-title"><div><h2>Luồng nhận phòng</h2><p>Các lượt cần phối hợp tiếp theo.</p></div><a href="#">Mở lịch <ArrowUpRight /></a></div>
-            {[
-              ['14:00', 'VS-10428', 'Sông Hàn Loft', 'Sẵn sàng'],
-              ['14:30', 'VS-10431', 'An Thượng Studio', 'Chờ dọn phòng'],
-              ['15:00', 'VS-10436', 'Sơn Trà House', 'Sẵn sàng'],
-            ].map((row) => <div className="arrival" key={row[1]}><time>{row[0]}</time><div><strong>{row[2]}</strong><span>{row[1]}</span></div><em>{row[3]}</em></div>)}
-          </article>
-          <article className="attention enter">
-            <div className="block-title"><div><h2>Cần xử lý</h2><p>Ưu tiên dựa trên SLA và ảnh hưởng khách.</p></div><span>9 mục</span></div>
-            <div className="task"><i className="critical" /><div><strong>Điều hòa không làm lạnh</strong><p>Sơn Trà House · Khách đang lưu trú</p></div><time>18 phút</time></div>
-            <div className="task"><i /><div><strong>Xác nhận chi phí sửa khóa</strong><p>Sông Hàn Loft · Chờ duyệt chủ nhà</p></div><time>46 phút</time></div>
-            <div className="task"><i /><div><strong>Đối chiếu booking OTA</strong><p>An Thượng Studio · Sai lệch ngày</p></div><time>1 giờ</time></div>
-          </article>
-        </section>
+        {profile.status === 'error' && (
+          <section className="inline-state error" role="alert">
+            <WarningCircle />
+            <div><strong>Không tải được hồ sơ</strong><span>{profile.error}</span></div>
+            <button onClick={profile.retry}><ArrowClockwise /> Thử lại</button>
+          </section>
+        )}
+
+        {profile.viewer && (
+          <>
+            <section className="signal-grid" aria-label="Trạng thái phiên làm việc">
+              <article>
+                <span>Danh tính</span>
+                <strong>Đã xác minh</strong>
+                <small><CheckCircle /> Backoffice Realm</small>
+              </article>
+              <article>
+                <span>Vai trò</span>
+                <strong>{profile.viewer.roles.length}</strong>
+                <small>{profile.viewer.roles.join(', ') || 'Chưa gán vai trò'}</small>
+              </article>
+              <article>
+                <span>Quyền hiệu lực</span>
+                <strong>{profile.viewer.permissions.length}</strong>
+                <small>Phiên bản {profile.viewer.authorizationVersion}</small>
+              </article>
+              <article className={`stream-signal ${stream.status}`}>
+                <span>Luồng thông báo</span>
+                <strong>{streamLabels[stream.status]}</strong>
+                <small><WifiHigh /> GraphQL-over-SSE</small>
+              </article>
+            </section>
+
+            <section className="content-grid">
+              <article className="profile-card" id="profile">
+                <div className="section-heading">
+                  <div><p className="eyebrow">FEDERATED VIEWER</p><h2>Hồ sơ đang hoạt động</h2></div>
+                  <ShieldCheck weight="duotone" />
+                </div>
+                <dl>
+                  <div><dt>Họ và tên</dt><dd>{profile.viewer.displayName}</dd></div>
+                  <div><dt>Email</dt><dd>{profile.viewer.email}</dd></div>
+                  <div><dt>Profile ID</dt><dd>{profile.viewer.profileId}</dd></div>
+                  <div><dt>Account ID</dt><dd>{profile.viewer.accountId}</dd></div>
+                </dl>
+                <div className="permission-list">
+                  {profile.viewer.permissions.map((permission) => <span key={permission}>{permission}</span>)}
+                  {profile.viewer.permissions.length === 0 && <span className="muted-chip">Chưa có quyền nghiệp vụ</span>}
+                </div>
+              </article>
+
+              <article className="security-card" id="security">
+                <LockKey weight="duotone" />
+                <p className="eyebrow">SECURITY CHECK</p>
+                <h2>Phiên được bảo vệ bằng PKCE.</h2>
+                <p>Access token chỉ tồn tại trong phiên trình duyệt và được kiểm tra tại Gateway lẫn service sở hữu dữ liệu.</p>
+              </article>
+
+              <section className="notification-section" id="notifications">
+                <div className="section-heading">
+                  <div><p className="eyebrow">DURABLE INBOX</p><h2>Thông báo của bạn</h2></div>
+                  <span className={`live-pill ${stream.status}`}><i />{streamLabels[stream.status]}</span>
+                </div>
+
+                {stream.error && (
+                  <div className="stream-error" role="alert">
+                    <span>{stream.error}</span>
+                    <button onClick={stream.reconnect}><ArrowClockwise /> Kết nối lại</button>
+                  </div>
+                )}
+
+                {stream.notifications.length === 0 ? (
+                  <div className="empty-state">
+                    <Bell weight="duotone" />
+                    <h3>Chưa có thông báo mới</h3>
+                    <p>Thông báo chào mừng và cảnh báo bảo mật sẽ xuất hiện tại đây. Cursor được lưu để tiếp tục sau khi kết nối lại.</p>
+                  </div>
+                ) : (
+                  <div className="notification-list">
+                    {stream.notifications.map((notification) => <NotificationItem key={notification.id} notification={notification} />)}
+                  </div>
+                )}
+              </section>
+            </section>
+          </>
+        )}
       </section>
     </main>
   )
 }
 
-export default App
+export default function App({ config }: AppProps) {
+  const auth = useAuth()
+  if (auth.isLoading || auth.activeNavigator) return <LoadingScreen label="Đang xác thực…" />
+  if (!auth.isAuthenticated || !auth.user?.access_token) {
+    return <LoginScreen error={auth.error?.message} onLogin={() => void auth.signinRedirect()} />
+  }
+  return <AuthenticatedApp config={config} accessToken={auth.user.access_token} />
+}
