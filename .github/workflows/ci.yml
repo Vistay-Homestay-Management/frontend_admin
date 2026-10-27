@@ -19,6 +19,8 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
       - run: npm run build
       - run: npm run lint --if-present
       - uses: docker/login-action@v3
