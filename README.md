@@ -8,7 +8,7 @@ Both clients perform the same real flow:
 
 1. Sign in to the isolated `vistay-backoffice` Keycloak realm with OIDC
    Authorization Code + PKCE (S256).
-2. Query the authenticated `viewer` through Caddy and the Backoffice Hive
+2. Query the authenticated `viewer` through Nginx and the Backoffice Hive
    Router.
 3. Subscribe to `notificationStream(afterCursor)` over GraphQL-over-SSE.
 4. Persist each opaque cursor, reconnect with bounded exponential backoff, and
@@ -57,7 +57,7 @@ npm run build
 ```
 
 For the integrated local flow, start the `full` profile from
-`platform_infrastructure`; Caddy exposes `admin.localhost`,
+`platform_infrastructure`; Nginx exposes `admin.localhost`,
 `graphql.localhost`, and `identity.localhost`. A standalone UI is expected to
 show a clear configuration/network error until those dependencies are
 available.
