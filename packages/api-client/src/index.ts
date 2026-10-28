@@ -42,6 +42,105 @@ export interface BackofficeViewer {
   authorizationVersion: number
 }
 
+export type AccountType = 'CUSTOMER' | 'ADMIN' | 'HOST'
+export type DataScope = 'SELF' | 'OWN' | 'ASSIGNED' | 'ALL'
+export type AuthorizationChangeStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'STALE'
+
+export interface EffectiveGrant {
+  permissionCode: string
+  scopes: DataScope[]
+}
+
+export interface AuthorizationPermissionPolicy {
+  permissionCode: string
+  allowedScopes: DataScope[]
+  defaultScopes: DataScope[]
+}
+
+export interface AuthorizationRole {
+  code: string
+  displayName: string
+  accountType: AccountType
+  policies: AuthorizationPermissionPolicy[]
+}
+
+export interface AuthorizationAssignment {
+  id: string
+  roleCode: string
+  validUntil: string | null
+  grants: EffectiveGrant[]
+}
+
+export interface AuthorizationSubject {
+  id: string
+  accountType: AccountType
+  accountId: string
+  profileId: string
+  active: boolean
+  authorizationVersion: number
+  assignments: AuthorizationAssignment[]
+  effectiveGrants: EffectiveGrant[]
+}
+
+export interface AuthorizationChangeRequest {
+  id: string
+  targetSubjectId: string
+  requestedBySubjectId: string
+  reviewedBySubjectId: string | null
+  changeType: string
+  status: AuthorizationChangeStatus
+  roleCode: string
+  reason: string
+  reviewReason: string | null
+  expiresAt: string
+  createdAt: string
+}
+
+export interface AuthorizationAuditEvent {
+  id: string
+  actorSubjectId: string | null
+  targetSubjectId: string | null
+  action: string
+  reason: string
+  correlationId: string | null
+  createdAt: string
+}
+
+export interface PermissionScopeOverrideInput {
+  permissionCode: string
+  scopes: DataScope[]
+}
+
+export interface RequestAuthorizationChangeInput {
+  targetSubjectId: string
+  roleCode: string
+  scopeOverrides: PermissionScopeOverrideInput[]
+  validUntil?: string | null
+  reason: string
+  expectedAuthorizationVersion: number
+  idempotencyKey: string
+}
+
+export interface RetainedPermissionScopesInput {
+  permissionCode: string
+  scopes: DataScope[]
+}
+
+export interface ReduceAuthorizationScopesInput {
+  assignmentId: string
+  retainedScopes: RetainedPermissionScopesInput[]
+  reason: string
+  expectedAuthorizationVersion: number
+}
+
+export interface AuthorizationWorkspace {
+  subject: AuthorizationSubject
+  catalog: AuthorizationRole[]
+  pendingRequests: AuthorizationChangeRequest[]
+  audit: AuthorizationAuditEvent[]
+  auditError?: string
+}
+
 export interface Notification {
   id: string
   category: NotificationCategory
@@ -80,6 +179,36 @@ function graphqlErrorMessage(errors: GraphqlResponse<unknown>['errors']): string
     ?? 'Phản hồi GraphQL không hợp lệ'
 }
 
+async function graphqlRequest<T>(
+  graphqlUrl: string,
+  accessToken: string,
+  operationName: string,
+  query: string,
+  variables: Record<string, unknown> = {},
+  signal?: AbortSignal,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<T> {
+  const response = await fetcher(graphqlUrl, {
+    method: 'POST',
+    headers: {
+      accept: 'application/graphql-response+json, application/json',
+      authorization: `Bearer ${accessToken}`,
+      'content-type': 'application/json',
+      'x-csrf-token': '1',
+    },
+    body: JSON.stringify({ operationName, query, variables }),
+    signal,
+  })
+
+  if (!response.ok) {
+    throw new ApiError(`Yêu cầu GraphQL thất bại (${response.status})`, response.status)
+  }
+  const payload = await response.json() as GraphqlResponse<T>
+  if (payload.errors?.length) throw new ApiError(graphqlErrorMessage(payload.errors))
+  if (!payload.data) throw new ApiError('Gateway không trả về dữ liệu')
+  return payload.data
+}
+
 export async function fetchViewer(
   graphqlUrl: string,
   accessToken: string,
@@ -110,6 +239,256 @@ export async function fetchViewer(
     throw new ApiError('Gateway không trả về hồ sơ người dùng')
   }
   return payload.data.viewer
+}
+
+const AUTHORIZATION_WORKSPACE_QUERY = `
+  query AuthorizationWorkspace($accountType: AccountType!, $accountId: ID!) {
+    authorizationSubjectByAccount(accountType: $accountType, accountId: $accountId) {
+      id accountType accountId profileId active authorizationVersion
+      assignments {
+        id roleCode validUntil
+        grants { permissionCode scopes }
+      }
+      effectiveGrants { permissionCode scopes }
+    }
+    authorizationCatalog(accountType: $accountType) {
+      code displayName accountType
+      policies { permissionCode allowedScopes defaultScopes }
+    }
+    authorizationChangeRequests(status: PENDING) {
+      id targetSubjectId requestedBySubjectId reviewedBySubjectId changeType
+      status roleCode reason reviewReason expiresAt createdAt
+    }
+  }
+`
+
+const AUTHORIZATION_AUDIT_QUERY = `
+  query AuthorizationAudit($targetSubjectId: ID) {
+    authorizationAudit(targetSubjectId: $targetSubjectId) {
+      id actorSubjectId targetSubjectId action reason correlationId createdAt
+    }
+  }
+`
+
+const AUTHORIZATION_SUBJECT_QUERY = `
+  query AuthorizationSubject($subjectId: ID!) {
+    authorizationSubject(subjectId: $subjectId) {
+      id accountType accountId profileId active authorizationVersion
+      assignments { id roleCode validUntil grants { permissionCode scopes } }
+      effectiveGrants { permissionCode scopes }
+    }
+  }
+`
+
+const REQUEST_AUTHORIZATION_CHANGE_MUTATION = `
+  mutation RequestAuthorizationChange($input: RequestAuthorizationChangeInput!) {
+    requestAuthorizationChange(input: $input) {
+      id targetSubjectId requestedBySubjectId reviewedBySubjectId changeType
+      status roleCode reason reviewReason expiresAt createdAt
+    }
+  }
+`
+
+const APPROVE_AUTHORIZATION_CHANGE_MUTATION = `
+  mutation ApproveAuthorizationChange($id: ID!, $reason: String!, $expectedAuthorizationVersion: Int!) {
+    approveAuthorizationChange(
+      id: $id
+      reason: $reason
+      expectedAuthorizationVersion: $expectedAuthorizationVersion
+    ) {
+      id targetSubjectId requestedBySubjectId reviewedBySubjectId changeType
+      status roleCode reason reviewReason expiresAt createdAt
+    }
+  }
+`
+
+const REJECT_AUTHORIZATION_CHANGE_MUTATION = `
+  mutation RejectAuthorizationChange($id: ID!, $reason: String!) {
+    rejectAuthorizationChange(id: $id, reason: $reason) {
+      id targetSubjectId requestedBySubjectId reviewedBySubjectId changeType
+      status roleCode reason reviewReason expiresAt createdAt
+    }
+  }
+`
+
+const REVOKE_ROLE_ASSIGNMENT_MUTATION = `
+  mutation RevokeRoleAssignment($assignmentId: ID!, $reason: String!, $expectedAuthorizationVersion: Int!) {
+    revokeRoleAssignment(
+      assignmentId: $assignmentId
+      reason: $reason
+      expectedAuthorizationVersion: $expectedAuthorizationVersion
+    ) {
+      id accountType accountId profileId active authorizationVersion
+      assignments { id roleCode validUntil grants { permissionCode scopes } }
+      effectiveGrants { permissionCode scopes }
+    }
+  }
+`
+
+const REDUCE_AUTHORIZATION_SCOPES_MUTATION = `
+  mutation ReduceAuthorizationScopes($input: ReduceAuthorizationScopesInput!) {
+    reduceAuthorizationScopes(input: $input) {
+      id accountType accountId profileId active authorizationVersion
+      assignments { id roleCode validUntil grants { permissionCode scopes } }
+      effectiveGrants { permissionCode scopes }
+    }
+  }
+`
+
+export async function fetchAuthorizationWorkspace(
+  graphqlUrl: string,
+  accessToken: string,
+  accountType: AccountType,
+  accountId: string,
+  signal?: AbortSignal,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<AuthorizationWorkspace> {
+  const initial = await graphqlRequest<{
+    authorizationSubjectByAccount: AuthorizationSubject
+    authorizationCatalog: AuthorizationRole[]
+    authorizationChangeRequests: AuthorizationChangeRequest[]
+  }>(graphqlUrl, accessToken, 'AuthorizationWorkspace', AUTHORIZATION_WORKSPACE_QUERY, {
+    accountType,
+    accountId,
+  }, signal, fetcher)
+
+  let audit: AuthorizationAuditEvent[] = []
+  let auditError: string | undefined
+  try {
+    const result = await graphqlRequest<{ authorizationAudit: AuthorizationAuditEvent[] }>(
+      graphqlUrl,
+      accessToken,
+      'AuthorizationAudit',
+      AUTHORIZATION_AUDIT_QUERY,
+      { targetSubjectId: initial.authorizationSubjectByAccount.id },
+      signal,
+      fetcher,
+    )
+    audit = result.authorizationAudit
+  } catch (error) {
+    auditError = error instanceof Error ? error.message : 'Không thể tải audit trail'
+  }
+
+  return {
+    subject: initial.authorizationSubjectByAccount,
+    catalog: initial.authorizationCatalog,
+    pendingRequests: initial.authorizationChangeRequests,
+    audit,
+    auditError,
+  }
+}
+
+export async function requestAuthorizationChange(
+  graphqlUrl: string,
+  accessToken: string,
+  input: RequestAuthorizationChangeInput,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<AuthorizationChangeRequest> {
+  const data = await graphqlRequest<{ requestAuthorizationChange: AuthorizationChangeRequest }>(
+    graphqlUrl,
+    accessToken,
+    'RequestAuthorizationChange',
+    REQUEST_AUTHORIZATION_CHANGE_MUTATION,
+    { input },
+    undefined,
+    fetcher,
+  )
+  return data.requestAuthorizationChange
+}
+
+export async function fetchAuthorizationSubject(
+  graphqlUrl: string,
+  accessToken: string,
+  subjectId: string,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<AuthorizationSubject> {
+  const data = await graphqlRequest<{ authorizationSubject: AuthorizationSubject }>(
+    graphqlUrl,
+    accessToken,
+    'AuthorizationSubject',
+    AUTHORIZATION_SUBJECT_QUERY,
+    { subjectId },
+    undefined,
+    fetcher,
+  )
+  return data.authorizationSubject
+}
+
+export async function approveAuthorizationChange(
+  graphqlUrl: string,
+  accessToken: string,
+  id: string,
+  reason: string,
+  expectedAuthorizationVersion: number,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<AuthorizationChangeRequest> {
+  const data = await graphqlRequest<{ approveAuthorizationChange: AuthorizationChangeRequest }>(
+    graphqlUrl,
+    accessToken,
+    'ApproveAuthorizationChange',
+    APPROVE_AUTHORIZATION_CHANGE_MUTATION,
+    { id, reason, expectedAuthorizationVersion },
+    undefined,
+    fetcher,
+  )
+  return data.approveAuthorizationChange
+}
+
+export async function rejectAuthorizationChange(
+  graphqlUrl: string,
+  accessToken: string,
+  id: string,
+  reason: string,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<AuthorizationChangeRequest> {
+  const data = await graphqlRequest<{ rejectAuthorizationChange: AuthorizationChangeRequest }>(
+    graphqlUrl,
+    accessToken,
+    'RejectAuthorizationChange',
+    REJECT_AUTHORIZATION_CHANGE_MUTATION,
+    { id, reason },
+    undefined,
+    fetcher,
+  )
+  return data.rejectAuthorizationChange
+}
+
+export async function revokeRoleAssignment(
+  graphqlUrl: string,
+  accessToken: string,
+  assignmentId: string,
+  reason: string,
+  expectedAuthorizationVersion: number,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<AuthorizationSubject> {
+  const data = await graphqlRequest<{ revokeRoleAssignment: AuthorizationSubject }>(
+    graphqlUrl,
+    accessToken,
+    'RevokeRoleAssignment',
+    REVOKE_ROLE_ASSIGNMENT_MUTATION,
+    { assignmentId, reason, expectedAuthorizationVersion },
+    undefined,
+    fetcher,
+  )
+  return data.revokeRoleAssignment
+}
+
+export async function reduceAuthorizationScopes(
+  graphqlUrl: string,
+  accessToken: string,
+  input: ReduceAuthorizationScopesInput,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<AuthorizationSubject> {
+  const data = await graphqlRequest<{ reduceAuthorizationScopes: AuthorizationSubject }>(
+    graphqlUrl,
+    accessToken,
+    'ReduceAuthorizationScopes',
+    REDUCE_AUTHORIZATION_SCOPES_MUTATION,
+    { input },
+    undefined,
+    fetcher,
+  )
+  return data.reduceAuthorizationScopes
 }
 
 export interface SseFrame {

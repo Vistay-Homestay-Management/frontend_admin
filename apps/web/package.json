@@ -11,8 +11,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@vistay/admin-api-client": "*",
+    "@gsap/react": "^2.1.2",
     "@phosphor-icons/react": "^2.1.10",
+    "@vistay/admin-api-client": "*",
+    "gsap": "^3.15.0",
     "oidc-client-ts": "^3.4.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",

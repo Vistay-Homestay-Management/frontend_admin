@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   consumeNotificationStream,
+  fetchAuthorizationWorkspace,
+  fetchAuthorizationSubject,
   fetchViewer,
   isDurableCursor,
   prependNotification,
+  requestAuthorizationChange,
   SseParser,
   type Notification,
 } from './index'
@@ -82,6 +85,67 @@ describe('GraphQL client', () => {
     expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ cursor: '42' }))
     expect(JSON.parse(requestBody).variables).toEqual({ afterCursor: '41' })
     expect(requestHeaders).toEqual(expect.objectContaining({ 'x-csrf-token': '1' }))
+  })
+
+  it('loads the authorization subject, catalog, pending queue and audit trail', async () => {
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body)) as { operationName: string }
+      if (request.operationName === 'AuthorizationAudit') {
+        return new Response(JSON.stringify({ data: { authorizationAudit: [{
+          id: 'audit-1', actorSubjectId: 'subject-actor', targetSubjectId: 'subject-1',
+          action: 'ROLE_GRANTED', reason: 'Approved for operations', correlationId: 'correlation-1',
+          createdAt: '2026-10-28T00:00:00Z',
+        }] } }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ data: {
+        authorizationSubjectByAccount: {
+          id: 'subject-1', accountType: 'ADMIN', accountId: 'account-1', profileId: 'profile-1',
+          active: true, authorizationVersion: 3, assignments: [], effectiveGrants: [],
+        },
+        authorizationCatalog: [{ code: 'SECURITY_ADMIN', displayName: 'Security admin', accountType: 'ADMIN', policies: [] }],
+        authorizationChangeRequests: [],
+      } }), { status: 200 })
+    })
+
+    const workspace = await fetchAuthorizationWorkspace('/graphql', 'token', 'ADMIN', 'account-1', undefined, fetcher)
+    expect(workspace.subject.authorizationVersion).toBe(3)
+    expect(workspace.catalog[0]?.code).toBe('SECURITY_ADMIN')
+    expect(workspace.audit[0]?.action).toBe('ROLE_GRANTED')
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+
+  it('sends an idempotent maker request with scope overrides', async () => {
+    let requestBody = ''
+    const fetcher: typeof fetch = async (_input, init) => {
+      requestBody = String(init?.body)
+      return new Response(JSON.stringify({ data: { requestAuthorizationChange: {
+        id: 'request-1', targetSubjectId: 'subject-1', requestedBySubjectId: 'actor-1',
+        reviewedBySubjectId: null, changeType: 'GRANT_ROLE', status: 'PENDING',
+        roleCode: 'SECURITY_ADMIN', reason: 'Support security operations', reviewReason: null,
+        expiresAt: '2026-10-29T00:00:00Z', createdAt: '2026-10-28T00:00:00Z',
+      } } }), { status: 200 })
+    }
+
+    const result = await requestAuthorizationChange('/graphql', 'token', {
+      targetSubjectId: 'subject-1', roleCode: 'SECURITY_ADMIN',
+      scopeOverrides: [{ permissionCode: 'authorization:read', scopes: ['ALL'] }],
+      reason: 'Support security operations', expectedAuthorizationVersion: 3,
+      idempotencyKey: 'request-key-1',
+    }, fetcher)
+
+    expect(result.status).toBe('PENDING')
+    expect(JSON.parse(requestBody).variables.input).toEqual(expect.objectContaining({
+      idempotencyKey: 'request-key-1', expectedAuthorizationVersion: 3,
+    }))
+  })
+
+  it('surfaces GraphQL authorization errors without returning partial data', async () => {
+    const fetcher: typeof fetch = async () => new Response(JSON.stringify({
+      errors: [{ message: 'Missing permission: authorization:read' }],
+    }), { status: 200 })
+
+    await expect(fetchAuthorizationSubject('/graphql', 'token', 'subject-1', fetcher))
+      .rejects.toThrow('Missing permission: authorization:read')
   })
 })
 

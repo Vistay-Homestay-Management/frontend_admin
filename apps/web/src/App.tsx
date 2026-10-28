@@ -14,6 +14,7 @@ import {
 import { useAuth } from 'react-oidc-context'
 import type { Notification } from '@vistay/admin-api-client'
 import './App.css'
+import { AuthorizationConsole } from './AuthorizationConsole'
 import type { RuntimeConfig } from './lib/config'
 import { useNotificationStream, useViewer, type StreamStatus } from './lib/useBackofficeData'
 
@@ -111,6 +112,7 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
         <a className="rail-mark" href="/" aria-label="ViStay">V<span>.</span></a>
         <nav aria-label="Điều hướng chính">
           <a className="active" href="#profile"><UserCircle /><span>Hồ sơ</span></a>
+          <a href="#authorization"><ShieldCheck /><span>Phân quyền</span></a>
           <a href="#notifications"><Bell /><span>Thông báo</span></a>
           <a href="#security"><ShieldCheck /><span>Bảo mật</span></a>
         </nav>
@@ -216,6 +218,11 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
                 )}
               </section>
             </section>
+            <AuthorizationConsole
+              graphqlUrl={config.graphqlUrl}
+              accessToken={accessToken}
+              viewer={profile.viewer}
+            />
           </>
         )}
       </section>
