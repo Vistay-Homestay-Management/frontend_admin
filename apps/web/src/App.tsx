@@ -17,6 +17,7 @@ import './App.css'
 import { AuthorizationConsole } from './AuthorizationConsole'
 import { AccountProvisioning } from './AccountProvisioning'
 import { SecuritySessions } from './SecuritySessions'
+import { PersonalProfileEditor } from './PersonalProfileEditor'
 import type { RuntimeConfig } from './lib/config'
 import { useNotificationStream, useViewer, type StreamStatus } from './lib/useBackofficeData'
 
@@ -170,22 +171,13 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
             </section>
 
             <section className="content-grid">
-              <article className="profile-card" id="profile">
-                <div className="section-heading">
-                  <div><p className="eyebrow">FEDERATED VIEWER</p><h2>Hồ sơ đang hoạt động</h2></div>
-                  <ShieldCheck weight="duotone" />
-                </div>
-                <dl>
-                  <div><dt>Họ và tên</dt><dd>{profile.viewer.displayName}</dd></div>
-                  <div><dt>Email</dt><dd>{profile.viewer.email}</dd></div>
-                  <div><dt>Profile ID</dt><dd>{profile.viewer.profileId}</dd></div>
-                  <div><dt>Account ID</dt><dd>{profile.viewer.accountId}</dd></div>
-                </dl>
-                <div className="permission-list">
-                  {profile.viewer.permissions.map((permission) => <span key={permission}>{permission}</span>)}
-                  {profile.viewer.permissions.length === 0 && <span className="muted-chip">Chưa có quyền nghiệp vụ</span>}
-                </div>
-              </article>
+              <PersonalProfileEditor
+                key={profile.viewer.profileVersion}
+                graphqlUrl={config.graphqlUrl}
+                accessToken={accessToken}
+                viewer={profile.viewer}
+                onUpdated={profile.retry}
+              />
 
               <SecuritySessions
                 authApiUrl={config.authApiUrl}

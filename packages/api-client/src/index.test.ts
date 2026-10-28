@@ -11,6 +11,7 @@ import {
   requestAuthorizationChange,
   revokeBackofficeSession,
   SseParser,
+  updateMyProfile,
   type Notification,
 } from './index'
 
@@ -43,6 +44,9 @@ describe('GraphQL client', () => {
           profileId: 'profile-1',
           displayName: 'ViStay Admin',
           email: 'admin@vistay.local',
+          contactPhone: null,
+          avatarMediaId: null,
+          profileVersion: 0,
           roles: ['ADMIN'],
           permissions: ['notifications:read'],
           authorizationVersion: 1,
@@ -88,6 +92,31 @@ describe('GraphQL client', () => {
     expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ cursor: '42' }))
     expect(JSON.parse(requestBody).variables).toEqual({ afterCursor: '41' })
     expect(requestHeaders).toEqual(expect.objectContaining({ 'x-csrf-token': '1' }))
+  })
+
+  it('updates the personal profile with concurrency and idempotency metadata', async () => {
+    let requestBody = ''
+    const fetcher: typeof fetch = async (_input, init) => {
+      requestBody = String(init?.body)
+      return new Response(JSON.stringify({ data: { updateMyProfile: {
+        accountId: 'account-1', profileId: 'profile-1', displayName: 'ViStay Operator',
+        email: 'admin@vistay.local', contactPhone: '+84901234567', avatarMediaId: null,
+        version: 2, updatedAt: '2026-10-28T15:00:00Z', replayed: false,
+      } } }), { status: 200 })
+    }
+
+    const profile = await updateMyProfile('/graphql', 'token', {
+      displayName: 'ViStay Operator', contactPhone: '+84901234567', avatarMediaId: null,
+      expectedVersion: 1, reason: 'Correct contact information', idempotencyKey: 'profile-key-1',
+    }, fetcher)
+
+    const request = JSON.parse(requestBody)
+    expect(profile.version).toBe(2)
+    expect(request.operationName).toBe('UpdateMyProfile')
+    expect(request.variables.input).toEqual(expect.objectContaining({
+      expectedVersion: 1,
+      idempotencyKey: 'profile-key-1',
+    }))
   })
 
   it('loads the authorization subject, catalog, pending queue and audit trail', async () => {

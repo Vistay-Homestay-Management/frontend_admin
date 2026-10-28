@@ -17,6 +17,7 @@ import { useNotificationStream, useViewer, type StreamStatus } from './src/useBa
 import { AuthorizationWorkspace } from './src/AuthorizationWorkspace'
 import { AccountProvisioning } from './src/AccountProvisioning'
 import { SecuritySessions } from './src/SecuritySessions'
+import { PersonalProfileEditor } from './src/PersonalProfileEditor'
 
 WebBrowser.maybeCompleteAuthSession()
 
@@ -167,14 +168,13 @@ function BackofficeScreen({ config, accessToken, onLogout }: {
               <View style={[styles.signal, stream.status === 'live' && styles.signalLive]}><Text style={styles.signalLabel}>THÔNG BÁO</Text><Text style={styles.signalValue}>{streamLabels[stream.status]}</Text><Text style={styles.signalNote}>GraphQL-over-SSE</Text></View>
             </View>
 
-            <View style={styles.card}>
-              <Text style={styles.eyebrow}>FEDERATED VIEWER</Text>
-              <Text style={styles.sectionTitle}>Hồ sơ đang hoạt động</Text>
-              <View style={styles.profileRow}><Text style={styles.profileLabel}>Email</Text><Text selectable style={styles.profileValue}>{profile.viewer.email}</Text></View>
-              <View style={styles.profileRow}><Text style={styles.profileLabel}>Profile ID</Text><Text selectable style={styles.profileValue}>{profile.viewer.profileId}</Text></View>
-              <View style={styles.profileRow}><Text style={styles.profileLabel}>Account ID</Text><Text selectable style={styles.profileValue}>{profile.viewer.accountId}</Text></View>
-              <View style={styles.chips}>{profile.viewer.permissions.map((permission) => <Text key={permission} style={styles.chip}>{permission}</Text>)}</View>
-            </View>
+            <PersonalProfileEditor
+              key={profile.viewer.profileVersion}
+              graphqlUrl={config.graphqlUrl}
+              accessToken={accessToken}
+              viewer={profile.viewer}
+              onUpdated={profile.retry}
+            />
 
             <SecuritySessions
               authApiUrl={config.authApiUrl}

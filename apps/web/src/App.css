@@ -91,6 +91,20 @@ a { color: inherit; text-decoration: none; }
 .permission-list { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 7px; }
 .permission-list span { padding: 7px 9px; border-radius: 7px; background: #edf1e9; color: #425c4d; font-size: .7rem; }
 .permission-list .muted-chip { color: var(--muted); }
+.profile-editor form { margin-top: 28px; }
+.profile-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.profile-editor label { color: var(--muted); display: grid; gap: 7px; font-size: .7rem; font-weight: 650; }
+.profile-editor input, .profile-editor textarea { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; background: white; color: var(--ink); }
+.profile-editor input[readonly] { background: #efeee8; color: var(--muted); }
+.profile-editor textarea { min-height: 76px; resize: vertical; }
+.profile-reason { margin-top: 14px; }
+.profile-meta { margin-top: 12px; color: var(--muted); display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: .62rem; overflow-wrap: anywhere; }
+.profile-message { margin: 12px 0 0; padding: 10px 12px; border-radius: 9px; display: flex; align-items: center; gap: 7px; font-size: .72rem; }
+.profile-message.error { background: #fff2ef; color: var(--danger); }
+.profile-message.success { background: #e9f4e1; color: #3f684d; }
+.profile-submit { margin-top: 14px; width: 100%; justify-content: center; }
+.profile-submit:disabled { opacity: .45; }
+.profile-readonly { margin: 14px 0 0; color: var(--muted); font-size: .72rem; }
 .security-card { padding: 30px; background: #18261e; color: white; }
 .security-card > svg { color: var(--lime); font-size: 2.5rem; }
 .security-card .eyebrow { margin-top: 44px; color: #96a59c; }
@@ -300,6 +314,7 @@ a { color: inherit; text-decoration: none; }
   .signal-grid { grid-template-columns: 1fr; }
   .profile-card dl { grid-template-columns: 1fr; }
   .profile-card dl div:nth-child(even) { padding-left: 0; border-left: 0; }
+  .profile-form-grid { grid-template-columns: 1fr; }
   .authorization-console { margin-top: 96px; }
   .provisioning-console { margin-top: 96px; min-height: auto; padding: 32px 22px; border-radius: 22px; }
   .provisioning-copy h2 { font-size: 3.1rem; }

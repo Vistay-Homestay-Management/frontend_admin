@@ -5,6 +5,9 @@ export const VIEWER_QUERY = `
       profileId
       displayName
       email
+      contactPhone
+      avatarMediaId
+      profileVersion
       roles
       permissions
       authorizationVersion
@@ -37,9 +40,33 @@ export interface BackofficeViewer {
   profileId: string
   displayName: string
   email: string
+  contactPhone: string | null
+  avatarMediaId: string | null
+  profileVersion: number
   roles: string[]
   permissions: string[]
   authorizationVersion: number
+}
+
+export interface UpdateMyProfileInput {
+  displayName: string
+  contactPhone: string | null
+  avatarMediaId: string | null
+  expectedVersion: number
+  reason: string
+  idempotencyKey: string
+}
+
+export interface PersonalProfile {
+  accountId: string
+  profileId: string
+  displayName: string
+  email: string
+  contactPhone: string | null
+  avatarMediaId: string | null
+  version: number
+  updatedAt: string
+  replayed: boolean
 }
 
 export interface ProvisionBackofficeAccountInput {
@@ -367,6 +394,40 @@ export async function fetchViewer(
     throw new ApiError('Gateway không trả về hồ sơ người dùng')
   }
   return payload.data.viewer
+}
+
+const UPDATE_MY_PROFILE_MUTATION = `
+  mutation UpdateMyProfile($input: UpdateMyProfileInput!) {
+    updateMyProfile(input: $input) {
+      accountId
+      profileId
+      displayName
+      email
+      contactPhone
+      avatarMediaId
+      version
+      updatedAt
+      replayed
+    }
+  }
+`
+
+export async function updateMyProfile(
+  graphqlUrl: string,
+  accessToken: string,
+  input: UpdateMyProfileInput,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<PersonalProfile> {
+  const data = await graphqlRequest<{ updateMyProfile: PersonalProfile }>(
+    graphqlUrl,
+    accessToken,
+    'UpdateMyProfile',
+    UPDATE_MY_PROFILE_MUTATION,
+    { input },
+    undefined,
+    fetcher,
+  )
+  return data.updateMyProfile
 }
 
 const AUTHORIZATION_WORKSPACE_QUERY = `
