@@ -3,11 +3,13 @@ import {
   consumeNotificationStream,
   fetchAuthorizationWorkspace,
   fetchAuthorizationSubject,
+  fetchBackofficeSessions,
   fetchViewer,
   isDurableCursor,
   prependNotification,
   provisionBackofficeAccount,
   requestAuthorizationChange,
+  revokeBackofficeSession,
   SseParser,
   type Notification,
 } from './index'
@@ -200,6 +202,42 @@ describe('Backoffice account provisioning client', () => {
       message: 'BACKOFFICE_ACCOUNT_ALREADY_EXISTS',
       status: 409,
     })
+  })
+
+  it('lists and revokes an active Keycloak session through the auth facade', async () => {
+    const session = {
+      id: 'session-1', ipAddress: '10.0.0.8', startedAt: '2026-10-28T12:00:00Z',
+      lastAccessAt: '2026-10-28T12:05:00Z', clients: { web: 'Web' }, current: true,
+    }
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'DELETE') {
+        return new Response(JSON.stringify({
+          targetAccountId: 'account-1', sessionId: 'session-1',
+          revokedAt: '2026-10-28T12:06:00Z', replayed: false,
+        }), { status: 200 })
+      }
+      return new Response(JSON.stringify([session]), { status: 200 })
+    })
+
+    const sessions = await fetchBackofficeSessions('/accounts', 'token', 'account-1', undefined, fetcher)
+    const revoked = await revokeBackofficeSession(
+      '/accounts', 'token', 'account-1', 'session-1',
+      'Lost operations device', '6b1fb4a4-90a3-4231-a779-61af996b9f41', fetcher,
+    )
+
+    expect(sessions).toEqual([session])
+    expect(revoked.sessionId).toBe('session-1')
+    expect(fetcher).toHaveBeenLastCalledWith(
+      '/accounts/account-1/sessions/session-1',
+      expect.objectContaining({
+        method: 'DELETE',
+        headers: expect.objectContaining({
+          authorization: 'Bearer token',
+          'idempotency-key': '6b1fb4a4-90a3-4231-a779-61af996b9f41',
+        }),
+        body: JSON.stringify({ reason: 'Lost operations device' }),
+      }),
+    )
   })
 })
 

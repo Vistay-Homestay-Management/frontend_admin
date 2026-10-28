@@ -16,6 +16,7 @@ import type { Notification } from '@vistay/admin-api-client'
 import './App.css'
 import { AuthorizationConsole } from './AuthorizationConsole'
 import { AccountProvisioning } from './AccountProvisioning'
+import { SecuritySessions } from './SecuritySessions'
 import type { RuntimeConfig } from './lib/config'
 import { useNotificationStream, useViewer, type StreamStatus } from './lib/useBackofficeData'
 
@@ -186,12 +187,12 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
                 </div>
               </article>
 
-              <article className="security-card" id="security">
-                <LockKey weight="duotone" />
-                <p className="eyebrow">SECURITY CHECK</p>
-                <h2>Phiên được bảo vệ bằng PKCE.</h2>
-                <p>Access token chỉ tồn tại trong phiên trình duyệt và được kiểm tra tại Gateway lẫn service sở hữu dữ liệu.</p>
-              </article>
+              <SecuritySessions
+                authApiUrl={config.authApiUrl}
+                accessToken={accessToken}
+                viewer={profile.viewer}
+                onCurrentRevoked={() => void auth.removeUser()}
+              />
 
               <section className="notification-section" id="notifications">
                 <div className="section-heading">

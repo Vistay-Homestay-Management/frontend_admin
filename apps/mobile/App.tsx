@@ -16,6 +16,7 @@ import { useMobileAuth } from './src/useMobileAuth'
 import { useNotificationStream, useViewer, type StreamStatus } from './src/useBackofficeData'
 import { AuthorizationWorkspace } from './src/AuthorizationWorkspace'
 import { AccountProvisioning } from './src/AccountProvisioning'
+import { SecuritySessions } from './src/SecuritySessions'
 
 WebBrowser.maybeCompleteAuthSession()
 
@@ -174,6 +175,13 @@ function BackofficeScreen({ config, accessToken, onLogout }: {
               <View style={styles.profileRow}><Text style={styles.profileLabel}>Account ID</Text><Text selectable style={styles.profileValue}>{profile.viewer.accountId}</Text></View>
               <View style={styles.chips}>{profile.viewer.permissions.map((permission) => <Text key={permission} style={styles.chip}>{permission}</Text>)}</View>
             </View>
+
+            <SecuritySessions
+              authApiUrl={config.authApiUrl}
+              accessToken={accessToken}
+              viewer={profile.viewer}
+              onCurrentRevoked={onLogout}
+            />
 
             <View style={styles.sectionHeader}>
               <View><Text style={styles.eyebrow}>DURABLE INBOX</Text><Text style={styles.sectionTitle}>Thông báo của bạn</Text></View>

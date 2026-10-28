@@ -59,6 +59,22 @@ export interface ProvisionedBackofficeAccount {
   createdAt: string
 }
 
+export interface BackofficeSession {
+  id: string
+  ipAddress: string
+  startedAt: string
+  lastAccessAt: string
+  clients: Record<string, string>
+  current: boolean
+}
+
+export interface SessionRevocationResult {
+  targetAccountId: string
+  sessionId: string
+  revokedAt: string
+  replayed: boolean
+}
+
 export type AccountType = 'CUSTOMER' | 'ADMIN' | 'HOST'
 export type DataScope = 'SELF' | 'OWN' | 'ASSIGNED' | 'ALL'
 export type AuthorizationChangeStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'STALE'
@@ -227,6 +243,68 @@ export async function provisionBackofficeAccount(
     throw new ApiError(detail, response.status)
   }
   return response.json() as Promise<ProvisionedBackofficeAccount>
+}
+
+async function authenticationProblem(response: Response, fallback: string): Promise<ApiError> {
+  let detail = fallback
+  try {
+    const problem = await response.json() as { detail?: string; message?: string }
+    detail = problem.detail || problem.message || detail
+  } catch {
+    // Keep the HTTP status fallback when a proxy returns a non-JSON body.
+  }
+  return new ApiError(detail, response.status)
+}
+
+export async function fetchBackofficeSessions(
+  authApiUrl: string,
+  accessToken: string,
+  accountId: string,
+  signal?: AbortSignal,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<BackofficeSession[]> {
+  const response = await fetcher(`${authApiUrl}/${encodeURIComponent(accountId)}/sessions`, {
+    headers: {
+      accept: 'application/json',
+      authorization: `Bearer ${accessToken}`,
+      'x-csrf-token': '1',
+    },
+    signal,
+  })
+  if (!response.ok) {
+    throw await authenticationProblem(response, `Không thể tải phiên hoạt động (${response.status})`)
+  }
+  return response.json() as Promise<BackofficeSession[]>
+}
+
+export async function revokeBackofficeSession(
+  authApiUrl: string,
+  accessToken: string,
+  accountId: string,
+  sessionId: string,
+  reason: string,
+  idempotencyKey: string,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<SessionRevocationResult> {
+  const response = await fetcher(
+    `${authApiUrl}/${encodeURIComponent(accountId)}/sessions/${encodeURIComponent(sessionId)}`,
+    {
+      method: 'DELETE',
+      headers: {
+        accept: 'application/json',
+        authorization: `Bearer ${accessToken}`,
+        'content-type': 'application/json',
+        'idempotency-key': idempotencyKey,
+        'x-correlation-id': idempotencyKey,
+        'x-csrf-token': '1',
+      },
+      body: JSON.stringify({ reason }),
+    },
+  )
+  if (!response.ok) {
+    throw await authenticationProblem(response, `Không thể thu hồi phiên (${response.status})`)
+  }
+  return response.json() as Promise<SessionRevocationResult>
 }
 
 async function graphqlRequest<T>(
