@@ -6,6 +6,7 @@ import {
   fetchViewer,
   isDurableCursor,
   prependNotification,
+  provisionBackofficeAccount,
   requestAuthorizationChange,
   SseParser,
   type Notification,
@@ -146,6 +147,59 @@ describe('GraphQL client', () => {
 
     await expect(fetchAuthorizationSubject('/graphql', 'token', 'subject-1', fetcher))
       .rejects.toThrow('Missing permission: authorization:read')
+  })
+})
+
+describe('Backoffice account provisioning client', () => {
+  it('sends authorization, audit and idempotency metadata without leaking them into the URL', async () => {
+    let requestBody = ''
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestBody = String(init?.body)
+      return new Response(JSON.stringify({
+        id: 'account-1', subject: 'account-1', email: 'operator@vistay.vn',
+        accountType: 'ADMIN', status: 'ACTIVE', version: 0,
+        createdAt: '2026-10-28T00:00:00Z',
+      }), { status: 201, headers: { 'content-type': 'application/json' } })
+    })
+
+    const account = await provisionBackofficeAccount(
+      '/api/v1/backoffice/accounts',
+      'access-token',
+      '6b1fb4a4-90a3-4231-a779-61af996b9f41',
+      {
+        email: 'operator@vistay.vn', fullName: 'ViStay Operator',
+        temporaryPassword: 'temporary-pass-123', reason: 'Required for night operations',
+      },
+      fetcher,
+    )
+
+    expect(account.status).toBe('ACTIVE')
+    expect(fetcher).toHaveBeenCalledWith('/api/v1/backoffice/accounts', expect.objectContaining({
+      method: 'POST',
+      headers: expect.objectContaining({
+        authorization: 'Bearer access-token',
+        'idempotency-key': '6b1fb4a4-90a3-4231-a779-61af996b9f41',
+        'x-correlation-id': '6b1fb4a4-90a3-4231-a779-61af996b9f41',
+      }),
+    }))
+    expect(JSON.parse(requestBody)).toEqual(expect.objectContaining({
+      temporaryPassword: 'temporary-pass-123',
+      reason: 'Required for night operations',
+    }))
+  })
+
+  it('surfaces the service problem detail for an existing email', async () => {
+    const fetcher: typeof fetch = async () => new Response(JSON.stringify({
+      detail: 'BACKOFFICE_ACCOUNT_ALREADY_EXISTS',
+    }), { status: 409, headers: { 'content-type': 'application/problem+json' } })
+
+    await expect(provisionBackofficeAccount('/accounts', 'token', 'key', {
+      email: 'existing@vistay.vn', fullName: 'Existing Account',
+      temporaryPassword: 'temporary-pass-123', reason: 'Duplicate account test',
+    }, fetcher)).rejects.toMatchObject({
+      message: 'BACKOFFICE_ACCOUNT_ALREADY_EXISTS',
+      status: 409,
+    })
   })
 })
 

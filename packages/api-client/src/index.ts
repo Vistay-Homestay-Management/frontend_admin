@@ -42,6 +42,23 @@ export interface BackofficeViewer {
   authorizationVersion: number
 }
 
+export interface ProvisionBackofficeAccountInput {
+  email: string
+  fullName: string
+  temporaryPassword: string
+  reason: string
+}
+
+export interface ProvisionedBackofficeAccount {
+  id: string
+  subject: string
+  email: string
+  accountType: 'ADMIN'
+  status: 'ACTIVE' | 'DISABLED' | 'CLOSED'
+  version: number
+  createdAt: string
+}
+
 export type AccountType = 'CUSTOMER' | 'ADMIN' | 'HOST'
 export type DataScope = 'SELF' | 'OWN' | 'ASSIGNED' | 'ALL'
 export type AuthorizationChangeStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'STALE'
@@ -177,6 +194,39 @@ export class ApiError extends Error {
 function graphqlErrorMessage(errors: GraphqlResponse<unknown>['errors']): string {
   return errors?.map((error) => error.message ?? 'Lỗi GraphQL không xác định').join('; ')
     ?? 'Phản hồi GraphQL không hợp lệ'
+}
+
+export async function provisionBackofficeAccount(
+  authApiUrl: string,
+  accessToken: string,
+  idempotencyKey: string,
+  input: ProvisionBackofficeAccountInput,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<ProvisionedBackofficeAccount> {
+  const response = await fetcher(authApiUrl, {
+    method: 'POST',
+    headers: {
+      accept: 'application/json',
+      authorization: `Bearer ${accessToken}`,
+      'content-type': 'application/json',
+      'idempotency-key': idempotencyKey,
+      'x-correlation-id': idempotencyKey,
+      'x-csrf-token': '1',
+    },
+    body: JSON.stringify(input),
+  })
+
+  if (!response.ok) {
+    let detail = `Không thể tạo tài khoản (${response.status})`
+    try {
+      const problem = await response.json() as { detail?: string; message?: string }
+      detail = problem.detail || problem.message || detail
+    } catch {
+      // The HTTP status remains useful when a proxy returns a non-JSON error body.
+    }
+    throw new ApiError(detail, response.status)
+  }
+  return response.json() as Promise<ProvisionedBackofficeAccount>
 }
 
 async function graphqlRequest<T>(

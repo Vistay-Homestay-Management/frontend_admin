@@ -1,4 +1,5 @@
 export interface MobileConfig {
+  authApiUrl: string
   graphqlUrl: string
   oidcIssuer: string
   oidcClientId: string
@@ -11,6 +12,9 @@ export type MobileConfigResult =
 
 export function readMobileConfig(): MobileConfigResult {
   const graphqlUrl = process.env.EXPO_PUBLIC_GRAPHQL_URL?.trim()
+  const authApiUrl = process.env.EXPO_PUBLIC_AUTH_API_URL?.trim()
+    || graphqlUrl?.replace(/^([^:]+:\/\/)graphql\./, '$1auth.')
+      .replace(/\/graphql\/?$/, '/api/v1/backoffice/accounts')
   const oidcIssuer = process.env.EXPO_PUBLIC_OIDC_ISSUER?.trim()
   const oidcClientId = process.env.EXPO_PUBLIC_OIDC_CLIENT_ID?.trim()
   const missing = [
@@ -22,6 +26,7 @@ export function readMobileConfig(): MobileConfigResult {
   if (missing.length) return { error: `Thiếu cấu hình: ${missing.join(', ')}` }
   return {
     config: {
+      authApiUrl: authApiUrl!,
       graphqlUrl: graphqlUrl!,
       oidcIssuer: oidcIssuer!.replace(/\/$/, ''),
       oidcClientId: oidcClientId!,

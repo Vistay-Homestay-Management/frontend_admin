@@ -15,6 +15,7 @@ import { readMobileConfig, type MobileConfig } from './src/config'
 import { useMobileAuth } from './src/useMobileAuth'
 import { useNotificationStream, useViewer, type StreamStatus } from './src/useBackofficeData'
 import { AuthorizationWorkspace } from './src/AuthorizationWorkspace'
+import { AccountProvisioning } from './src/AccountProvisioning'
 
 WebBrowser.maybeCompleteAuthSession()
 
@@ -105,7 +106,7 @@ function BackofficeScreen({ config, accessToken, onLogout }: {
 }) {
   const profile = useViewer(config.graphqlUrl, accessToken)
   const stream = useNotificationStream(config.graphqlUrl, accessToken, profile.viewer?.accountId)
-  const [section, setSection] = useState<'overview' | 'authorization'>('overview')
+  const [section, setSection] = useState<'overview' | 'accounts' | 'authorization'>('overview')
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -137,6 +138,14 @@ function BackofficeScreen({ config, accessToken, onLogout }: {
                 style={[styles.tab, section === 'overview' && styles.tabActive]}
               >
                 <Text style={[styles.tabText, section === 'overview' && styles.tabTextActive]}>Tổng quan</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="tab"
+                accessibilityState={{ selected: section === 'accounts' }}
+                onPress={() => setSection('accounts')}
+                style={[styles.tab, section === 'accounts' && styles.tabActive]}
+              >
+                <Text style={[styles.tabText, section === 'accounts' && styles.tabTextActive]}>Tài khoản</Text>
               </Pressable>
               <Pressable
                 accessibilityRole="tab"
@@ -186,6 +195,8 @@ function BackofficeScreen({ config, accessToken, onLogout }: {
               </View>
             ) : stream.notifications.map((notification) => <NotificationCard key={notification.id} notification={notification} />)}
               </>
+            ) : section === 'accounts' ? (
+              <AccountProvisioning authApiUrl={config.authApiUrl} accessToken={accessToken} viewer={profile.viewer} />
             ) : (
               <AuthorizationWorkspace graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} />
             )}
