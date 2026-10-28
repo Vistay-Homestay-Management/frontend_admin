@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import * as WebBrowser from 'expo-web-browser'
 import { StatusBar } from 'expo-status-bar'
 import {
@@ -13,6 +14,7 @@ import type { Notification } from '@vistay/admin-api-client'
 import { readMobileConfig, type MobileConfig } from './src/config'
 import { useMobileAuth } from './src/useMobileAuth'
 import { useNotificationStream, useViewer, type StreamStatus } from './src/useBackofficeData'
+import { AuthorizationWorkspace } from './src/AuthorizationWorkspace'
 
 WebBrowser.maybeCompleteAuthSession()
 
@@ -103,6 +105,7 @@ function BackofficeScreen({ config, accessToken, onLogout }: {
 }) {
   const profile = useViewer(config.graphqlUrl, accessToken)
   const stream = useNotificationStream(config.graphqlUrl, accessToken, profile.viewer?.accountId)
+  const [section, setSection] = useState<'overview' | 'authorization'>('overview')
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -126,6 +129,27 @@ function BackofficeScreen({ config, accessToken, onLogout }: {
 
         {profile.viewer && (
           <>
+            <View accessibilityRole="tablist" style={styles.tabs}>
+              <Pressable
+                accessibilityRole="tab"
+                accessibilityState={{ selected: section === 'overview' }}
+                onPress={() => setSection('overview')}
+                style={[styles.tab, section === 'overview' && styles.tabActive]}
+              >
+                <Text style={[styles.tabText, section === 'overview' && styles.tabTextActive]}>Tổng quan</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="tab"
+                accessibilityState={{ selected: section === 'authorization' }}
+                onPress={() => setSection('authorization')}
+                style={[styles.tab, section === 'authorization' && styles.tabActive]}
+              >
+                <Text style={[styles.tabText, section === 'authorization' && styles.tabTextActive]}>Phân quyền</Text>
+              </Pressable>
+            </View>
+
+            {section === 'overview' ? (
+              <>
             <View style={styles.signalGrid}>
               <View style={styles.signal}><Text style={styles.signalLabel}>DANH TÍNH</Text><Text style={styles.signalValue}>Đã xác minh</Text><Text style={styles.signalNote}>Backoffice Realm</Text></View>
               <View style={styles.signal}><Text style={styles.signalLabel}>VAI TRÒ</Text><Text style={styles.signalNumber}>{profile.viewer.roles.length}</Text><Text style={styles.signalNote}>{profile.viewer.roles.join(', ') || 'Chưa gán'}</Text></View>
@@ -161,6 +185,10 @@ function BackofficeScreen({ config, accessToken, onLogout }: {
                 <Text style={styles.emptyBody}>Thông báo chào mừng và bảo mật sẽ xuất hiện tại đây. Cursor được lưu để tiếp tục sau khi kết nối lại.</Text>
               </View>
             ) : stream.notifications.map((notification) => <NotificationCard key={notification.id} notification={notification} />)}
+              </>
+            ) : (
+              <AuthorizationWorkspace graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} />
+            )}
           </>
         )}
       </ScrollView>
@@ -221,6 +249,11 @@ const styles = StyleSheet.create({
   title: { marginTop: 9, color: '#17231d', fontSize: 38, lineHeight: 37, letterSpacing: -2.2, fontWeight: '700' },
   logout: { paddingHorizontal: 13, paddingVertical: 10, borderRadius: 11, borderWidth: 1, borderColor: '#dcddd5', backgroundColor: '#fffef9' },
   logoutText: { color: '#17231d', fontSize: 12, fontWeight: '700' },
+  tabs: { marginTop: 26, padding: 4, borderRadius: 14, backgroundColor: '#e6e5dd', flexDirection: 'row', gap: 4 },
+  tab: { flex: 1, minHeight: 42, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  tabActive: { backgroundColor: '#17231d' },
+  tabText: { color: '#68756e', fontSize: 11, fontWeight: '700' },
+  tabTextActive: { color: 'white' },
   inlineState: { minHeight: 82, marginTop: 32, padding: 17, borderRadius: 16, borderWidth: 1, borderColor: '#dcddd5', backgroundColor: '#fffef9', flexDirection: 'row', alignItems: 'center', gap: 12 },
   inlineError: { borderColor: '#e7c0b9', backgroundColor: '#fff7f4' },
   errorCopy: { flex: 1 },

@@ -322,7 +322,7 @@ export function AuthorizationConsole({ graphqlUrl, accessToken, viewer }: Author
             <span className="inline-title-image" style={{ backgroundImage: `url(${heroImage})` }} aria-hidden />
             phạm vi dữ liệu.
           </h2>
-          <p>Tra cứu subject, tạo yêu cầu tăng quyền và phê duyệt bằng đúng phiên bản authorization đang hiệu lực.</p>
+          <p>Tra cứu subject và vận hành mô hình ba lớp — vai trò, hành động, phạm vi dữ liệu — bằng đúng phiên bản authorization đang hiệu lực.</p>
         </div>
         <form className="subject-search" onSubmit={submitLookup}>
           <label>
