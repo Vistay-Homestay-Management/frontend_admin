@@ -169,6 +169,22 @@ a { color: inherit; text-decoration: none; }
 .form-message.success { background: #2b4935; color: #dcf5d1; }
 .created-account { margin: 0; padding: 12px; border: 1px solid rgba(255,255,255,.14); border-radius: 9px; display: grid; gap: 4px; overflow-wrap: anywhere; }
 .created-account span { color: #9baaa1; font-size: .63rem; }
+.account-security-console { margin-top: 32px; padding: clamp(28px, 5vw, 64px); border-radius: 28px; background: #18261e; color: white; display: grid; grid-template-columns: minmax(260px, 4fr) minmax(360px, 6fr); gap: 48px; }
+.account-security-console h2 { margin: 10px 0; font-size: clamp(2.2rem, 4vw, 4.5rem); line-height: .94; letter-spacing: -.06em; }
+.account-security-console > div > p:last-child { color: #a9b5ae; line-height: 1.6; }
+.account-security-console form, .account-security-console label { display: grid; gap: 10px; }
+.account-security-console form { gap: 14px; }
+.account-security-console label { color: #aebbb3; font-size: .7rem; }
+.account-security-console input, .account-security-console textarea { width: 100%; padding: 12px; border: 1px solid rgba(255,255,255,.14); border-radius: 9px; background: #223128; color: white; }
+.account-security-console textarea { min-height: 80px; resize: vertical; }
+.security-state { padding: 14px; border: 1px solid rgba(255,255,255,.12); border-radius: 11px; display: grid; gap: 4px; }
+.security-state span { color: #a9b5ae; font-size: .7rem; overflow-wrap: anywhere; }
+.lifecycle-actions { display: flex; gap: 8px; }
+.lifecycle-actions button { flex: 1; padding: 11px; border: 1px solid rgba(255,255,255,.18); border-radius: 9px; background: var(--lime); color: var(--ink); font-weight: 700; }
+.lifecycle-actions button:disabled { opacity: .35; }
+.security-events { max-height: 280px; overflow: auto; display: grid; gap: 7px; }
+.security-events article { padding: 12px; border-top: 1px solid rgba(255,255,255,.12); display: grid; gap: 5px; }
+.security-events span, .security-events small { color: #a9b5ae; font-size: .68rem; }
 
 .authorization-console { margin-top: 140px; scroll-margin-top: 32px; }
 .authorization-hero { min-height: 520px; padding: clamp(38px, 6vw, 86px); border-radius: 32px; overflow: hidden; background: #142119; color: white; display: grid; grid-template-columns: minmax(0, 7fr) minmax(320px, 5fr); gap: clamp(32px, 6vw, 92px); align-items: end; position: relative; }
@@ -289,6 +305,7 @@ a { color: inherit; text-decoration: none; }
   .notification-section { grid-column: auto; }
   .authorization-hero { grid-template-columns: 1fr; }
   .provisioning-console { grid-template-columns: 1fr; }
+  .account-security-console { grid-template-columns: 1fr; }
   .authorization-bento > article { grid-column: span 12; }
   .authorization-workflow { grid-template-columns: 1fr; }
   .workflow-content { grid-column: 1; }

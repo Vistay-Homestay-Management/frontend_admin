@@ -18,6 +18,7 @@ import { AuthorizationConsole } from './AuthorizationConsole'
 import { AccountProvisioning } from './AccountProvisioning'
 import { SecuritySessions } from './SecuritySessions'
 import { PersonalProfileEditor } from './PersonalProfileEditor'
+import { AccountSecurityConsole } from './AccountSecurityConsole'
 import type { RuntimeConfig } from './lib/config'
 import { useNotificationStream, useViewer, type StreamStatus } from './lib/useBackofficeData'
 
@@ -213,6 +214,11 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
               </section>
             </section>
             <AccountProvisioning
+              authApiUrl={config.authApiUrl}
+              accessToken={accessToken}
+              viewer={profile.viewer}
+            />
+            <AccountSecurityConsole
               authApiUrl={config.authApiUrl}
               accessToken={accessToken}
               viewer={profile.viewer}

@@ -18,6 +18,7 @@ import { AuthorizationWorkspace } from './src/AuthorizationWorkspace'
 import { AccountProvisioning } from './src/AccountProvisioning'
 import { SecuritySessions } from './src/SecuritySessions'
 import { PersonalProfileEditor } from './src/PersonalProfileEditor'
+import { AccountSecurityConsole } from './src/AccountSecurityConsole'
 
 WebBrowser.maybeCompleteAuthSession()
 
@@ -204,7 +205,10 @@ function BackofficeScreen({ config, accessToken, onLogout }: {
             ) : stream.notifications.map((notification) => <NotificationCard key={notification.id} notification={notification} />)}
               </>
             ) : section === 'accounts' ? (
-              <AccountProvisioning authApiUrl={config.authApiUrl} accessToken={accessToken} viewer={profile.viewer} />
+              <>
+                <AccountProvisioning authApiUrl={config.authApiUrl} accessToken={accessToken} viewer={profile.viewer} />
+                <AccountSecurityConsole authApiUrl={config.authApiUrl} accessToken={accessToken} viewer={profile.viewer} />
+              </>
             ) : (
               <AuthorizationWorkspace graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} />
             )}

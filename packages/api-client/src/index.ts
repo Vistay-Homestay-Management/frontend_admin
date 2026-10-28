@@ -102,6 +102,48 @@ export interface SessionRevocationResult {
   replayed: boolean
 }
 
+export type AccountLifecycleAction = 'LOCK' | 'DISABLE' | 'RECOVER'
+
+export interface AccountSecurityView {
+  account: {
+    id: string
+    email: string
+    status: 'ACTIVE' | 'LOCKED' | 'DISABLED' | 'CLOSED'
+    version: number
+    updatedAt: string
+  }
+  bruteForce: {
+    temporarilyLocked: boolean
+    failureCount: number
+    lastFailureIp: string | null
+    lastFailureAt: string | null
+  }
+}
+
+export interface AccountLifecycleEvent {
+  idempotencyKey: string
+  actorAccountId: string
+  targetAccountId: string
+  action: AccountLifecycleAction
+  previousStatus: string
+  resultingStatus: string
+  resultingVersion: number
+  reason: string
+  correlationId: string
+  createdAt: string
+  completedAt: string
+}
+
+export interface AccountLifecycleResult {
+  targetAccountId: string
+  action: AccountLifecycleAction
+  previousStatus: string
+  status: string
+  version: number
+  completedAt: string
+  replayed: boolean
+}
+
 export type AccountType = 'CUSTOMER' | 'ADMIN' | 'HOST'
 export type DataScope = 'SELF' | 'OWN' | 'ASSIGNED' | 'ALL'
 export type AuthorizationChangeStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'STALE'
@@ -332,6 +374,54 @@ export async function revokeBackofficeSession(
     throw await authenticationProblem(response, `Không thể thu hồi phiên (${response.status})`)
   }
   return response.json() as Promise<SessionRevocationResult>
+}
+
+export async function fetchAccountSecurity(
+  authApiUrl: string,
+  accessToken: string,
+  accountId: string,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<AccountSecurityView> {
+  const response = await fetcher(`${authApiUrl}/${encodeURIComponent(accountId)}`, {
+    headers: { accept: 'application/json', authorization: `Bearer ${accessToken}`, 'x-csrf-token': '1' },
+  })
+  if (!response.ok) throw await authenticationProblem(response, `Không thể tải trạng thái tài khoản (${response.status})`)
+  return response.json() as Promise<AccountSecurityView>
+}
+
+export async function fetchAccountSecurityEvents(
+  authApiUrl: string,
+  accessToken: string,
+  accountId: string,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<AccountLifecycleEvent[]> {
+  const response = await fetcher(`${authApiUrl}/${encodeURIComponent(accountId)}/security-events`, {
+    headers: { accept: 'application/json', authorization: `Bearer ${accessToken}`, 'x-csrf-token': '1' },
+  })
+  if (!response.ok) throw await authenticationProblem(response, `Không thể tải sự kiện bảo mật (${response.status})`)
+  return response.json() as Promise<AccountLifecycleEvent[]>
+}
+
+export async function changeAccountLifecycle(
+  authApiUrl: string,
+  accessToken: string,
+  accountId: string,
+  action: AccountLifecycleAction,
+  expectedVersion: number,
+  reason: string,
+  idempotencyKey: string,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<AccountLifecycleResult> {
+  const response = await fetcher(`${authApiUrl}/${encodeURIComponent(accountId)}/lifecycle`, {
+    method: 'POST',
+    headers: {
+      accept: 'application/json', authorization: `Bearer ${accessToken}`, 'content-type': 'application/json',
+      'idempotency-key': idempotencyKey, 'x-correlation-id': idempotencyKey, 'x-csrf-token': '1',
+    },
+    body: JSON.stringify({ action, expectedVersion, reason }),
+  })
+  if (!response.ok) throw await authenticationProblem(response, `Không thể thay đổi trạng thái tài khoản (${response.status})`)
+  return response.json() as Promise<AccountLifecycleResult>
 }
 
 async function graphqlRequest<T>(

@@ -12,6 +12,7 @@ import {
   revokeBackofficeSession,
   SseParser,
   updateMyProfile,
+  changeAccountLifecycle,
   type Notification,
 } from './index'
 
@@ -182,6 +183,23 @@ describe('GraphQL client', () => {
 })
 
 describe('Backoffice account provisioning client', () => {
+  it('sends an audited versioned account lifecycle action', async () => {
+    let requestBody = ''
+    const fetcher: typeof fetch = async (_input, init) => {
+      requestBody = String(init?.body)
+      return new Response(JSON.stringify({
+        targetAccountId: 'account-2', action: 'LOCK', previousStatus: 'ACTIVE',
+        status: 'LOCKED', version: 2, completedAt: '2026-10-28T16:00:00Z', replayed: false,
+      }), { status: 200 })
+    }
+
+    const result = await changeAccountLifecycle('/accounts', 'token', 'account-2', 'LOCK', 1,
+      'Suspicious login investigation', '6b1fb4a4-90a3-4231-a779-61af996b9f41', fetcher)
+
+    expect(result.status).toBe('LOCKED')
+    expect(JSON.parse(requestBody)).toEqual({ action: 'LOCK', expectedVersion: 1, reason: 'Suspicious login investigation' })
+  })
+
   it('sends authorization, audit and idempotency metadata without leaking them into the URL', async () => {
     let requestBody = ''
     const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
