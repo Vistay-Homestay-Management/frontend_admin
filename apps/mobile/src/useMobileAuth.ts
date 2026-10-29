@@ -8,6 +8,7 @@ import {
   TokenTypeHint,
   useAuthRequest,
   useAutoDiscovery,
+  type DiscoveryDocument,
   type TokenResponse,
 } from 'expo-auth-session'
 import * as SecureStore from 'expo-secure-store'
@@ -18,6 +19,21 @@ const REFRESH_TOKEN_KEY = 'vistay.auth.refresh-token'
 const ID_TOKEN_KEY = 'vistay.auth.id-token'
 const TOKEN_META_KEY = 'vistay.auth.token-meta'
 const SCOPES = ['openid', 'profile', 'email', 'notifications:read']
+
+function rebaseDiscovery(document: DiscoveryDocument | null, issuer: string): DiscoveryDocument | null {
+  if (!document) return null
+  const origin = new URL(issuer).origin
+  const rebase = (value?: string) => value ? `${origin}${new URL(value).pathname}${new URL(value).search}` : value
+  return {
+    ...document,
+    authorizationEndpoint: rebase(document.authorizationEndpoint)!,
+    tokenEndpoint: rebase(document.tokenEndpoint),
+    revocationEndpoint: rebase(document.revocationEndpoint),
+    userInfoEndpoint: rebase(document.userInfoEndpoint),
+    endSessionEndpoint: rebase(document.endSessionEndpoint),
+    registrationEndpoint: rebase(document.registrationEndpoint),
+  }
+}
 
 interface StoredSession {
   accessToken: string
@@ -94,7 +110,11 @@ function fromTokenResponse(response: TokenResponse, previous?: StoredSession): S
 }
 
 export function useMobileAuth(config: MobileConfig) {
-  const discovery = useAutoDiscovery(config.oidcIssuer)
+  const discovered = useAutoDiscovery(config.oidcIssuer)
+  const discovery = useMemo(
+    () => rebaseDiscovery(discovered, config.oidcIssuer),
+    [config.oidcIssuer, discovered],
+  )
   const redirectUri = useMemo(
     () => config.oidcRedirectUri ?? makeRedirectUri({ scheme: 'vistay-admin', path: 'oauth/callback' }),
     [config.oidcRedirectUri],
