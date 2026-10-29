@@ -11,6 +11,7 @@ import {
   type DiscoveryDocument,
   type TokenResponse,
 } from 'expo-auth-session'
+import * as WebBrowser from 'expo-web-browser'
 import * as SecureStore from 'expo-secure-store'
 import type { MobileConfig } from './config'
 
@@ -246,8 +247,17 @@ export function useMobileAuth(config: MobileConfig) {
   const login = useCallback(async () => {
     setError(undefined)
     setStatus('authorizing')
-    const result = await promptAsync()
-    if (result.type === 'cancel' || result.type === 'dismiss') setStatus('signedOut')
+    try {
+      const browsers = await WebBrowser.getCustomTabsSupportingBrowsersAsync()
+      const browserPackage = browsers.browserPackages.includes('com.android.chrome')
+        ? 'com.android.chrome'
+        : browsers.preferredBrowserPackage
+      const result = await promptAsync({ browserPackage })
+      if (result.type === 'cancel' || result.type === 'dismiss') setStatus('signedOut')
+    } catch (reason) {
+      setError(message(reason))
+      setStatus('error')
+    }
   }, [promptAsync])
 
   const logout = useCallback(async () => {
