@@ -12,9 +12,11 @@
     "build": "npm run build --workspace @vistay/admin-web",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --if-present --workspaces",
-    "test": "npm run test --if-present --workspaces"
+    "test": "npm run test --if-present --workspaces && vitest run apps/mobile/src/InventoryWorkspace.test.tsx",
+    "test:mobile": "vitest run apps/mobile/src/InventoryWorkspace.test.tsx"
   },
   "devDependencies": {
+    "test-renderer": "^1.3.1",
     "vitest": "^4.0.17"
   },
   "overrides": {
