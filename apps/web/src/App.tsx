@@ -1,6 +1,7 @@
 import {
   ArrowClockwise,
   Bell,
+  CalendarDots,
   CheckCircle,
   Key,
   LockKey,
@@ -11,6 +12,7 @@ import {
   WarningCircle,
   WifiHigh,
 } from '@phosphor-icons/react'
+import { useEffect, useState } from 'react'
 import { useAuth } from 'react-oidc-context'
 import type { Notification } from '@vistay/admin-api-client'
 import './App.css'
@@ -19,6 +21,7 @@ import { AccountProvisioning } from './AccountProvisioning'
 import { SecuritySessions } from './SecuritySessions'
 import { PersonalProfileEditor } from './PersonalProfileEditor'
 import { AccountSecurityConsole } from './AccountSecurityConsole'
+import { InventoryWorkspace } from './InventoryWorkspace'
 import type { RuntimeConfig } from './lib/config'
 import { useNotificationStream, useViewer, type StreamStatus } from './lib/useBackofficeData'
 
@@ -104,34 +107,58 @@ function initials(name: string): string {
   return name.split(/\s+/).filter(Boolean).slice(-2).map((part) => part[0]).join('').toUpperCase()
 }
 
+type AdminPage = 'inventory' | 'profile' | 'notifications' | 'accounts' | 'authorization'
+
+const pageTitles: Record<AdminPage, { eyebrow: string; title: string }> = {
+  inventory: { eyebrow: 'TRUNG TÂM VẬN HÀNH', title: 'Tồn phòng & sơ đồ căn' },
+  profile: { eyebrow: 'HỒ SƠ CÁ NHÂN', title: 'Phiên làm việc của bạn' },
+  notifications: { eyebrow: 'DURABLE INBOX', title: 'Thông báo vận hành' },
+  accounts: { eyebrow: 'QUẢN TRỊ DANH TÍNH', title: 'Tài khoản Backoffice' },
+  authorization: { eyebrow: 'KIỂM SOÁT TRUY CẬP', title: 'Phân quyền ba lớp' },
+}
+
+function pageFromHash(): AdminPage {
+  const page = window.location.hash.replace('#', '') as AdminPage
+  return page in pageTitles ? page : 'inventory'
+}
+
 function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: string }) {
   const auth = useAuth()
   const profile = useViewer(config.graphqlUrl, accessToken)
   const stream = useNotificationStream(config.graphqlUrl, accessToken, profile.viewer?.accountId)
   const displayName = profile.viewer?.displayName ?? auth.user?.profile.preferred_username ?? 'Backoffice'
+  const [activePage, setActivePage] = useState<AdminPage>(pageFromHash)
+
+  useEffect(() => {
+    const syncPage = () => setActivePage(pageFromHash())
+    window.addEventListener('hashchange', syncPage)
+    if (!window.location.hash) window.history.replaceState(null, '', '#inventory')
+    return () => window.removeEventListener('hashchange', syncPage)
+  }, [])
+
+  const pageTitle = pageTitles[activePage]
 
   return (
     <main className="admin-shell">
       <aside className="rail">
-        <a className="rail-mark" href="/" aria-label="ViStay">V<span>.</span></a>
+        <a className="rail-mark" href="#inventory" aria-label="ViStay"><span className="rail-symbol">V</span><strong>ViStay</strong><small>Admin workspace</small></a>
         <nav aria-label="Điều hướng chính">
-          <a className="active" href="#profile"><UserCircle /><span>Hồ sơ</span></a>
-          <a href="#authorization"><ShieldCheck /><span>Phân quyền</span></a>
-          <a href="#notifications"><Bell /><span>Thông báo</span></a>
-          <a href="#accounts"><Key /><span>Tài khoản</span></a>
+          <a className={activePage === 'inventory' ? 'active' : ''} href="#inventory"><CalendarDots /><span>Sơ đồ phòng</span></a>
+          <a className={activePage === 'profile' ? 'active' : ''} href="#profile"><UserCircle /><span>Hồ sơ của tôi</span></a>
+          <a className={activePage === 'notifications' ? 'active' : ''} href="#notifications"><Bell /><span>Thông báo</span>{stream.notifications.length > 0 && <i>{stream.notifications.length}</i>}</a>
+          <a className={activePage === 'accounts' ? 'active' : ''} href="#accounts"><Key /><span>Tài khoản</span></a>
+          <a className={activePage === 'authorization' ? 'active' : ''} href="#authorization"><ShieldCheck /><span>Phân quyền</span></a>
         </nav>
-        <button className="rail-avatar" title={displayName}>{initials(displayName)}</button>
+        <div className="rail-account"><button className="rail-avatar" title={displayName}>{initials(displayName)}</button><span><strong>{displayName}</strong><small>{profile.viewer?.roles[0] ?? 'Backoffice'}</small></span></div>
       </aside>
 
       <section className="workspace">
         <header className="topbar">
           <div>
-            <p className="eyebrow">TRUNG TÂM VẬN HÀNH</p>
-            <h1>Xin chào, {displayName}.</h1>
+            <p className="eyebrow">{pageTitle.eyebrow}</p>
+            <h1>{pageTitle.title}</h1>
           </div>
-          <button className="secondary-button" onClick={() => void auth.signoutRedirect()}>
-            Đăng xuất <SignOut />
-          </button>
+          <div className="topbar-actions"><span className={`connection-chip ${stream.status}`}><i />{streamLabels[stream.status]}</span><button className="secondary-button" onClick={() => void auth.signoutRedirect()}>Đăng xuất <SignOut /></button></div>
         </header>
 
         {profile.status === 'loading' && (
@@ -148,7 +175,11 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
 
         {profile.viewer && (
           <>
-            <section className="signal-grid" aria-label="Trạng thái phiên làm việc">
+            {activePage === 'inventory' && (
+              <InventoryWorkspace graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} />
+            )}
+
+            {activePage === 'profile' && <><section className="signal-grid" aria-label="Trạng thái phiên làm việc">
               <article>
                 <span>Danh tính</span>
                 <strong>Đã xác minh</strong>
@@ -187,33 +218,18 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
                 onCurrentRevoked={() => void auth.removeUser()}
               />
 
-              <section className="notification-section" id="notifications">
-                <div className="section-heading">
-                  <div><p className="eyebrow">DURABLE INBOX</p><h2>Thông báo của bạn</h2></div>
-                  <span className={`live-pill ${stream.status}`}><i />{streamLabels[stream.status]}</span>
-                </div>
+            </section></>}
 
-                {stream.error && (
-                  <div className="stream-error" role="alert">
-                    <span>{stream.error}</span>
-                    <button onClick={stream.reconnect}><ArrowClockwise /> Kết nối lại</button>
-                  </div>
-                )}
+            {activePage === 'notifications' && <section className="notification-section standalone-section" id="notifications">
+              <div className="section-heading">
+                <div><p className="eyebrow">DURABLE INBOX</p><h2>Thông báo của bạn</h2></div>
+                <span className={`live-pill ${stream.status}`}><i />{streamLabels[stream.status]}</span>
+              </div>
+              {stream.error && <div className="stream-error" role="alert"><span>{stream.error}</span><button onClick={stream.reconnect}><ArrowClockwise /> Kết nối lại</button></div>}
+              {stream.notifications.length === 0 ? <div className="empty-state"><Bell weight="duotone" /><h3>Chưa có thông báo mới</h3><p>Thông báo chào mừng và cảnh báo bảo mật sẽ xuất hiện tại đây. Cursor được lưu để tiếp tục sau khi kết nối lại.</p></div> : <div className="notification-list">{stream.notifications.map((notification) => <NotificationItem key={notification.id} notification={notification} />)}</div>}
+            </section>}
 
-                {stream.notifications.length === 0 ? (
-                  <div className="empty-state">
-                    <Bell weight="duotone" />
-                    <h3>Chưa có thông báo mới</h3>
-                    <p>Thông báo chào mừng và cảnh báo bảo mật sẽ xuất hiện tại đây. Cursor được lưu để tiếp tục sau khi kết nối lại.</p>
-                  </div>
-                ) : (
-                  <div className="notification-list">
-                    {stream.notifications.map((notification) => <NotificationItem key={notification.id} notification={notification} />)}
-                  </div>
-                )}
-              </section>
-            </section>
-            <AccountProvisioning
+            {activePage === 'accounts' && <><AccountProvisioning
               authApiUrl={config.authApiUrl}
               accessToken={accessToken}
               viewer={profile.viewer}
@@ -222,12 +238,12 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
               authApiUrl={config.authApiUrl}
               accessToken={accessToken}
               viewer={profile.viewer}
-            />
-            <AuthorizationConsole
+            /></>}
+            {activePage === 'authorization' && <AuthorizationConsole
               graphqlUrl={config.graphqlUrl}
               accessToken={accessToken}
               viewer={profile.viewer}
-            />
+            />}
           </>
         )}
       </section>

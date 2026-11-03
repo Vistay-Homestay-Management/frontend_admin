@@ -243,6 +243,100 @@ export interface AuthorizationWorkspace {
   auditError?: string
 }
 
+export type InventoryBlockType = 'BOOKING' | 'MAINTENANCE' | 'CLEANING' | 'OWNER_USE' | 'MANUAL' | 'CHANNEL'
+export type OperatorInventoryBlockType = 'MAINTENANCE' | 'CLEANING' | 'OWNER_USE' | 'MANUAL'
+export type InventoryBlockStatus = 'TENTATIVE' | 'ACTIVE' | 'RELEASED' | 'CANCELLED'
+
+export interface InventoryBlockManagementInput {
+  propertyId: string
+  fromDate?: string
+  toDateExclusive?: string
+  types?: InventoryBlockType[]
+  statuses?: InventoryBlockStatus[]
+  first?: number
+  after?: string
+}
+
+export interface InventoryBlockManagementNode {
+  inventoryBlockId: string
+  propertyId: string
+  type: InventoryBlockType
+  status: InventoryBlockStatus
+  startDate: string
+  endDateExclusive: string
+  reason: string | null
+  channelProvider: string | null
+  blockVersion: string
+  createdAt: string
+  updatedAt: string
+  releasedAt: string | null
+}
+
+export interface InventoryBlockManagementPage {
+  nodes: InventoryBlockManagementNode[]
+  pageInfo: { hasNextPage: boolean; endCursor: string | null }
+  inventoryRevision: string
+  branchId: string
+  propertyMembershipVersion: string
+}
+
+export interface PropertyAvailabilityObservation {
+  propertyId: string
+  checkInDate: string
+  checkOutDate: string
+  available: boolean
+  inventoryRevision: string
+  branchId: string
+  propertyMembershipVersion: string
+  observedAt: string
+  overlaps: Array<{
+    type: InventoryBlockType
+    status: InventoryBlockStatus
+    startDate: string
+    endDateExclusive: string
+    channelProvider: string | null
+  }>
+}
+
+export interface CreateInventoryBlockInput {
+  idempotencyKey: string
+  propertyId: string
+  blockType: OperatorInventoryBlockType
+  startDate: string
+  endDateExclusive: string
+  expectedInventoryRevision: string
+  reason: string
+  correlationId: string
+}
+
+export interface ReleaseInventoryBlockInput {
+  idempotencyKey: string
+  propertyId: string
+  inventoryBlockId: string
+  expectedInventoryRevision: string
+  reason: string
+  correlationId: string
+}
+
+export interface InventoryBlockCommandResult {
+  commandId: string
+  idempotencyKey: string
+  requestHash: string
+  inventoryBlockId: string
+  action: 'CREATED' | 'RELEASED'
+  propertyId: string
+  blockType: InventoryBlockType
+  status: InventoryBlockStatus
+  startDate: string
+  endDateExclusive: string
+  blockVersion: string
+  inventoryRevision: string
+  branchId: string
+  propertyMembershipVersion: string
+  occurredAt: string
+  releasedAt: string | null
+}
+
 export interface Notification {
   id: string
   category: NotificationCategory
@@ -260,19 +354,22 @@ export interface NotificationStreamEvent {
 
 interface GraphqlResponse<T> {
   data?: T
-  errors?: Array<{ message?: string }>
+  errors?: Array<{ message?: string; extensions?: { code?: string } }>
 }
 
 export class ApiError extends Error {
   readonly status?: number
+  readonly code?: string
 
   constructor(
     message: string,
     status?: number,
+    code?: string,
   ) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.code = code
   }
 }
 
@@ -449,7 +546,9 @@ async function graphqlRequest<T>(
     throw new ApiError(`Yêu cầu GraphQL thất bại (${response.status})`, response.status)
   }
   const payload = await response.json() as GraphqlResponse<T>
-  if (payload.errors?.length) throw new ApiError(graphqlErrorMessage(payload.errors))
+  if (payload.errors?.length) {
+    throw new ApiError(graphqlErrorMessage(payload.errors), undefined, payload.errors[0]?.extensions?.code)
+  }
   if (!payload.data) throw new ApiError('Gateway không trả về dữ liệu')
   return payload.data
 }
@@ -768,6 +867,125 @@ export async function reduceAuthorizationScopes(
     fetcher,
   )
   return data.reduceAuthorizationScopes
+}
+
+const INVENTORY_BLOCKS_QUERY = `
+  query InventoryBlocks($input: InventoryBlockManagementInput!) {
+    inventoryBlocks(input: $input) {
+      nodes {
+        inventoryBlockId propertyId type status startDate endDateExclusive reason
+        channelProvider blockVersion createdAt updatedAt releasedAt
+      }
+      pageInfo { hasNextPage endCursor }
+      inventoryRevision branchId propertyMembershipVersion
+    }
+  }
+`
+
+const PROPERTY_AVAILABILITY_QUERY = `
+  query PropertyAvailability($input: PropertyAvailabilityInput!) {
+    propertyAvailability(input: $input) {
+      propertyId checkInDate checkOutDate available inventoryRevision branchId
+      propertyMembershipVersion observedAt
+      overlaps { type status startDate endDateExclusive channelProvider }
+    }
+  }
+`
+
+const CREATE_INVENTORY_BLOCK_MUTATION = `
+  mutation CreateInventoryBlock($input: CreateInventoryBlockInput!) {
+    createInventoryBlock(input: $input) {
+      commandId idempotencyKey requestHash inventoryBlockId action propertyId blockType
+      status startDate endDateExclusive blockVersion inventoryRevision branchId
+      propertyMembershipVersion occurredAt releasedAt
+    }
+  }
+`
+
+const RELEASE_INVENTORY_BLOCK_MUTATION = `
+  mutation ReleaseInventoryBlock($input: ReleaseInventoryBlockInput!) {
+    releaseInventoryBlock(input: $input) {
+      commandId idempotencyKey requestHash inventoryBlockId action propertyId blockType
+      status startDate endDateExclusive blockVersion inventoryRevision branchId
+      propertyMembershipVersion occurredAt releasedAt
+    }
+  }
+`
+
+export async function fetchInventoryBlocks(
+  graphqlUrl: string,
+  accessToken: string,
+  input: InventoryBlockManagementInput,
+  signal?: AbortSignal,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<InventoryBlockManagementPage> {
+  const data = await graphqlRequest<{ inventoryBlocks: InventoryBlockManagementPage }>(
+    graphqlUrl,
+    accessToken,
+    'InventoryBlocks',
+    INVENTORY_BLOCKS_QUERY,
+    { input },
+    signal,
+    fetcher,
+  )
+  return data.inventoryBlocks
+}
+
+export async function fetchPropertyAvailability(
+  graphqlUrl: string,
+  accessToken: string,
+  propertyId: string,
+  checkInDate: string,
+  checkOutDate: string,
+  signal?: AbortSignal,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<PropertyAvailabilityObservation> {
+  const data = await graphqlRequest<{ propertyAvailability: PropertyAvailabilityObservation }>(
+    graphqlUrl,
+    accessToken,
+    'PropertyAvailability',
+    PROPERTY_AVAILABILITY_QUERY,
+    { input: { propertyId, checkInDate, checkOutDate } },
+    signal,
+    fetcher,
+  )
+  return data.propertyAvailability
+}
+
+export async function createInventoryBlock(
+  graphqlUrl: string,
+  accessToken: string,
+  input: CreateInventoryBlockInput,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<InventoryBlockCommandResult> {
+  const data = await graphqlRequest<{ createInventoryBlock: InventoryBlockCommandResult }>(
+    graphqlUrl,
+    accessToken,
+    'CreateInventoryBlock',
+    CREATE_INVENTORY_BLOCK_MUTATION,
+    { input },
+    undefined,
+    fetcher,
+  )
+  return data.createInventoryBlock
+}
+
+export async function releaseInventoryBlock(
+  graphqlUrl: string,
+  accessToken: string,
+  input: ReleaseInventoryBlockInput,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<InventoryBlockCommandResult> {
+  const data = await graphqlRequest<{ releaseInventoryBlock: InventoryBlockCommandResult }>(
+    graphqlUrl,
+    accessToken,
+    'ReleaseInventoryBlock',
+    RELEASE_INVENTORY_BLOCK_MUTATION,
+    { input },
+    undefined,
+    fetcher,
+  )
+  return data.releaseInventoryBlock
 }
 
 export interface SseFrame {

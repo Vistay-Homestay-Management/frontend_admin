@@ -1,14 +1,18 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   consumeNotificationStream,
+  createInventoryBlock,
   fetchAuthorizationWorkspace,
   fetchAuthorizationSubject,
   fetchBackofficeSessions,
+  fetchInventoryBlocks,
+  fetchPropertyAvailability,
   fetchViewer,
   isDurableCursor,
   prependNotification,
   provisionBackofficeAccount,
   requestAuthorizationChange,
+  releaseInventoryBlock,
   revokeBackofficeSession,
   SseParser,
   updateMyProfile,
@@ -179,6 +183,83 @@ describe('GraphQL client', () => {
 
     await expect(fetchAuthorizationSubject('/graphql', 'token', 'subject-1', fetcher))
       .rejects.toThrow('Missing permission: authorization:read')
+  })
+
+  it('loads the revision-pinned inventory management page', async () => {
+    let requestBody = ''
+    const fetcher: typeof fetch = async (_input, init) => {
+      requestBody = String(init?.body)
+      return new Response(JSON.stringify({ data: { inventoryBlocks: {
+        nodes: [{
+          inventoryBlockId: 'block-1', propertyId: 'property-1', type: 'MAINTENANCE', status: 'ACTIVE',
+          startDate: '2026-11-03', endDateExclusive: '2026-11-05', reason: 'Scheduled maintenance',
+          channelProvider: null, blockVersion: '1', createdAt: '2026-11-01T00:00:00Z',
+          updatedAt: '2026-11-01T00:00:00Z', releasedAt: null,
+        }],
+        pageInfo: { hasNextPage: false, endCursor: null }, inventoryRevision: '12',
+        branchId: 'branch-1', propertyMembershipVersion: '4',
+      } } }), { status: 200 })
+    }
+
+    const page = await fetchInventoryBlocks('/graphql', 'token', {
+      propertyId: 'property-1', fromDate: '2026-11-01', toDateExclusive: '2026-11-08', first: 50,
+    }, undefined, fetcher)
+
+    expect(page.inventoryRevision).toBe('12')
+    expect(page.nodes[0]?.type).toBe('MAINTENANCE')
+    expect(JSON.parse(requestBody)).toEqual(expect.objectContaining({
+      operationName: 'InventoryBlocks',
+      variables: { input: expect.objectContaining({ propertyId: 'property-1', first: 50 }) },
+    }))
+  })
+
+  it('observes availability and preserves stable GraphQL error codes', async () => {
+    const okFetcher: typeof fetch = async () => new Response(JSON.stringify({ data: { propertyAvailability: {
+      propertyId: 'property-1', checkInDate: '2026-11-03', checkOutDate: '2026-11-05', available: true,
+      inventoryRevision: '12', branchId: 'branch-1', propertyMembershipVersion: '4',
+      observedAt: '2026-11-03T00:00:00Z', overlaps: [],
+    } } }), { status: 200 })
+    const observation = await fetchPropertyAvailability(
+      '/graphql', 'token', 'property-1', '2026-11-03', '2026-11-05', undefined, okFetcher,
+    )
+    expect(observation.available).toBe(true)
+
+    const deniedFetcher: typeof fetch = async () => new Response(JSON.stringify({
+      errors: [{ message: 'Inventory read forbidden', extensions: { code: 'INVENTORY_READ_FORBIDDEN' } }],
+    }), { status: 200 })
+    await expect(fetchInventoryBlocks('/graphql', 'token', { propertyId: 'property-1' }, undefined, deniedFetcher))
+      .rejects.toMatchObject({ code: 'INVENTORY_READ_FORBIDDEN' })
+  })
+
+  it('sends create and release commands with the observed revision', async () => {
+    const requests: Array<{ operationName: string; variables: Record<string, unknown> }> = []
+    const fetcher: typeof fetch = async (_input, init) => {
+      const request = JSON.parse(String(init?.body))
+      requests.push(request)
+      const action = request.operationName === 'CreateInventoryBlock' ? 'CREATED' : 'RELEASED'
+      const field = action === 'CREATED' ? 'createInventoryBlock' : 'releaseInventoryBlock'
+      return new Response(JSON.stringify({ data: { [field]: {
+        commandId: 'command-1', idempotencyKey: 'command-key', requestHash: 'hash', inventoryBlockId: 'block-1',
+        action, propertyId: 'property-1', blockType: 'MANUAL', status: action === 'CREATED' ? 'ACTIVE' : 'RELEASED',
+        startDate: '2026-11-03', endDateExclusive: '2026-11-05', blockVersion: action === 'CREATED' ? '1' : '2',
+        inventoryRevision: action === 'CREATED' ? '13' : '14', branchId: 'branch-1', propertyMembershipVersion: '4',
+        occurredAt: '2026-11-03T00:00:00Z', releasedAt: action === 'RELEASED' ? '2026-11-03T00:00:00Z' : null,
+      } } }), { status: 200 })
+    }
+
+    await createInventoryBlock('/graphql', 'token', {
+      idempotencyKey: 'command-key', propertyId: 'property-1', blockType: 'MANUAL',
+      startDate: '2026-11-03', endDateExclusive: '2026-11-05', expectedInventoryRevision: '12',
+      reason: 'Reserved for operational inspection', correlationId: 'correlation-1',
+    }, fetcher)
+    await releaseInventoryBlock('/graphql', 'token', {
+      idempotencyKey: 'release-key', propertyId: 'property-1', inventoryBlockId: 'block-1',
+      expectedInventoryRevision: '13', reason: 'Operational inspection completed', correlationId: 'correlation-2',
+    }, fetcher)
+
+    expect(requests.map((request) => request.operationName)).toEqual(['CreateInventoryBlock', 'ReleaseInventoryBlock'])
+    expect(requests[0]?.variables).toEqual({ input: expect.objectContaining({ expectedInventoryRevision: '12' }) })
+    expect(requests[1]?.variables).toEqual({ input: expect.objectContaining({ inventoryBlockId: 'block-1' }) })
   })
 })
 
