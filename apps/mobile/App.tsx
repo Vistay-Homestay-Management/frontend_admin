@@ -19,6 +19,7 @@ import { AccountProvisioning } from './src/AccountProvisioning'
 import { SecuritySessions } from './src/SecuritySessions'
 import { PersonalProfileEditor } from './src/PersonalProfileEditor'
 import { AccountSecurityConsole } from './src/AccountSecurityConsole'
+import { InventoryWorkspace } from './src/InventoryWorkspace'
 
 WebBrowser.maybeCompleteAuthSession()
 
@@ -109,7 +110,7 @@ function BackofficeScreen({ config, accessToken, onLogout }: {
 }) {
   const profile = useViewer(config.graphqlUrl, accessToken)
   const stream = useNotificationStream(config.graphqlUrl, accessToken, profile.viewer?.accountId)
-  const [section, setSection] = useState<'overview' | 'accounts' | 'authorization'>('overview')
+  const [section, setSection] = useState<'overview' | 'inventory' | 'accounts' | 'authorization'>('overview')
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -141,6 +142,14 @@ function BackofficeScreen({ config, accessToken, onLogout }: {
                 style={[styles.tab, section === 'overview' && styles.tabActive]}
               >
                 <Text style={[styles.tabText, section === 'overview' && styles.tabTextActive]}>Tổng quan</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="tab"
+                accessibilityState={{ selected: section === 'inventory' }}
+                onPress={() => setSection('inventory')}
+                style={[styles.tab, section === 'inventory' && styles.tabActive]}
+              >
+                <Text style={[styles.tabText, section === 'inventory' && styles.tabTextActive]}>Tồn phòng</Text>
               </Pressable>
               <Pressable
                 accessibilityRole="tab"
@@ -204,6 +213,8 @@ function BackofficeScreen({ config, accessToken, onLogout }: {
               </View>
             ) : stream.notifications.map((notification) => <NotificationCard key={notification.id} notification={notification} />)}
               </>
+            ) : section === 'inventory' ? (
+              <InventoryWorkspace graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} />
             ) : section === 'accounts' ? (
               <>
                 <AccountProvisioning authApiUrl={config.authApiUrl} accessToken={accessToken} viewer={profile.viewer} />
