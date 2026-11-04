@@ -3,6 +3,8 @@ import {
   consumeNotificationStream,
   createInventoryBlock,
   fetchNotificationInbox,
+  fetchNotificationPreferences,
+  fetchNotificationTemplates,
   fetchAuthorizationWorkspace,
   fetchAuthorizationSubject,
   fetchBackofficeSessions,
@@ -22,6 +24,8 @@ import {
   revokeBackofficeSession,
   SseParser,
   updateMyProfile,
+  updateNotificationPreferences,
+  previewNotificationTemplate,
   changeAccountLifecycle,
   type Notification,
 } from './index'
@@ -457,5 +461,55 @@ describe('notification inbox contract', () => {
       throughCursor: '42', idempotencyKey: 'read-all-key',
     }, undefined, fetcher)
     expect(operations).toEqual(['MarkNotificationRead', 'MarkAllNotificationsRead'])
+  })
+})
+
+describe('notification template and preference contract', () => {
+  it('loads templates and preferences through versioned operations', async () => {
+    const operations: string[] = []
+    const fetcher: typeof fetch = async (_input, init) => {
+      const request = JSON.parse(String(init?.body)) as { operationName: string; query: string }
+      operations.push(request.operationName)
+      if (request.operationName === 'NotificationTemplates') {
+        return new Response(JSON.stringify({ data: { notificationTemplates: {
+          nodes: [{ id: 'template-1', templateKey: 'security.alert', channel: 'EMAIL', locale: 'vi-VN', status: 'DRAFT', revision: 2, policyRevision: 4, requiredVariables: ['name'], subject: 'Hello', body: 'Hi {{name}}', immutable: false }],
+          pageInfo: { hasNextPage: false, endCursor: null, startCursor: null, cursorState: 'ACTIVE', retainedFrom: null, reconcileFrom: null },
+        } } }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ data: { notificationPreferences: {
+        revision: 3,
+        nodes: [{ id: 'preference-1', notificationType: 'SECURITY', channel: 'EMAIL', enabled: true, required: true, quietHours: null, timeZoneId: 'Asia/Ho_Chi_Minh', revision: 3, updatedAt: '2026-11-04T00:00:00Z' }],
+      } } }), { status: 200 })
+    }
+
+    const templates = await fetchNotificationTemplates('/graphql', 'token', { status: 'DRAFT' }, undefined, fetcher)
+    const preferences = await fetchNotificationPreferences('/graphql', 'token', undefined, fetcher)
+    expect(templates.nodes[0]?.requiredVariables).toEqual(['name'])
+    expect(preferences.nodes[0]?.required).toBe(true)
+    expect(operations).toEqual(['NotificationTemplates', 'NotificationPreferences'])
+  })
+
+  it('sends self-preference updates and synthetic template preview variables', async () => {
+    const requests: Array<{ operationName: string; variables: Record<string, unknown> }> = []
+    const fetcher: typeof fetch = async (_input, init) => {
+      const request = JSON.parse(String(init?.body)) as { operationName: string; variables: Record<string, unknown> }
+      requests.push(request)
+      if (request.operationName === 'PreviewNotificationTemplate') {
+        return new Response(JSON.stringify({ data: { previewNotificationTemplate: {
+          templateKey: 'security.alert', channel: 'EMAIL', locale: 'vi-VN', revision: 2, subject: 'Preview', body: 'Synthetic body',
+        } } }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ data: { updateNotificationPreferences: { revision: 4, nodes: [] } } }), { status: 200 })
+    }
+
+    const preview = await previewNotificationTemplate('/graphql', 'token', {
+      templateKey: 'security.alert', channel: 'EMAIL', locale: 'vi-VN', variables: [{ name: 'name', value: 'Sample user' }],
+    }, undefined, fetcher)
+    await updateNotificationPreferences('/graphql', 'token', {
+      idempotencyKey: 'preference-key', updates: [{ notificationType: 'SECURITY', channel: 'EMAIL', enabled: true, quietHours: null, timeZoneId: 'Asia/Ho_Chi_Minh', expectedVersion: 3 }],
+    }, undefined, fetcher)
+    expect(preview.body).toBe('Synthetic body')
+    expect(requests[0]?.variables.input).toEqual(expect.objectContaining({ variables: [{ name: 'name', value: 'Sample user' }] }))
+    expect(requests[1]?.variables.input).toEqual(expect.objectContaining({ idempotencyKey: 'preference-key' }))
   })
 })
