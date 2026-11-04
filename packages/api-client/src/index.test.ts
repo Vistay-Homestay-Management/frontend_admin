@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   consumeNotificationStream,
   createInventoryBlock,
+  fetchNotificationInbox,
   fetchAuthorizationWorkspace,
   fetchAuthorizationSubject,
   fetchBackofficeSessions,
@@ -9,6 +10,11 @@ import {
   fetchPropertyAvailability,
   fetchViewer,
   isDurableCursor,
+  mapNotificationReference,
+  mergeNotifications,
+  markAllNotificationsRead,
+  markNotificationRead,
+  notificationRevision,
   prependNotification,
   provisionBackofficeAccount,
   requestAuthorizationChange,
@@ -380,5 +386,76 @@ describe('notification deduplication', () => {
     expect(isDurableCursor('42')).toBe(true)
     expect(isDurableCursor('042')).toBe(false)
     expect(isDurableCursor('-1')).toBe(false)
+  })
+})
+
+describe('notification inbox contract', () => {
+  const first: Notification = {
+    id: 'notification-1',
+    category: 'SECURITY',
+    title: 'Security alert',
+    body: 'Review the recent sign-in.',
+    channels: ['IN_APP'],
+    createdAt: '2026-11-04T08:00:00Z',
+    readAt: null,
+    priority: 'HIGH',
+    inboxRevision: 4,
+    version: 4,
+    reference: { type: 'ACCOUNT', id: 'account-1', actionUrl: 'javascript:alert(1)' },
+  }
+
+  it('loads the recipient-owned paginated contract with revision and safe reference fields', async () => {
+    let requestBody = ''
+    const fetcher: typeof fetch = async (_input, init) => {
+      requestBody = String(init?.body)
+      return new Response(JSON.stringify({ data: { notificationInbox: {
+        nodes: [first],
+        pageInfo: { hasNextPage: true, endCursor: '42', startCursor: '41', cursorState: 'ACTIVE', retainedFrom: '1', reconcileFrom: null },
+        unread: { count: 1, asOfCursor: '42', inboxRevision: 4 },
+      } } }), { status: 200 })
+    }
+
+    const page = await fetchNotificationInbox('/graphql', 'token', { limit: 50, unreadOnly: true }, undefined, fetcher)
+    const request = JSON.parse(requestBody)
+    expect(page.nodes[0]?.inboxRevision).toBe(4)
+    expect(page.pageInfo.cursorState).toBe('ACTIVE')
+    expect(request.operationName).toBe('NotificationInbox')
+    expect(request.variables.input).toEqual({ limit: 50, unreadOnly: true })
+    expect(request.query).toContain('reference { type id actionUrl }')
+  })
+
+  it('keeps the newest revision and never exposes raw action URLs through navigation', () => {
+    const older = { ...first, title: 'Older replay', inboxRevision: 3, version: 3 }
+    const newer = { ...first, title: 'Newer notification', inboxRevision: 5, version: 5 }
+    const merged = mergeNotifications([first], [older, newer])
+    expect(merged).toHaveLength(1)
+    expect(merged[0]?.title).toBe('Newer notification')
+    expect(notificationRevision(merged[0]!)).toBe(5)
+    expect(mapNotificationReference(first.reference)).toBe('#accounts?account=account-1')
+    expect(mapNotificationReference({ type: 'UNKNOWN', id: 'x', actionUrl: 'https://evil.test' })).toBeNull()
+  })
+
+  it('sends idempotent read and read-all mutations with stable operation names', async () => {
+    const operations: string[] = []
+    const fetcher: typeof fetch = async (_input, init) => {
+      const request = JSON.parse(String(init?.body)) as { operationName: string }
+      operations.push(request.operationName)
+      if (request.operationName === 'MarkNotificationRead') {
+        return new Response(JSON.stringify({ data: { markNotificationRead: {
+          id: first.id, readAt: '2026-11-04T08:05:00Z', inboxRevision: 5, version: 5,
+        } } }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ data: { markAllNotificationsRead: {
+        markedCount: 1, throughCursor: '42', inboxRevision: 6,
+      } } }), { status: 200 })
+    }
+
+    await markNotificationRead('/graphql', 'token', {
+      notificationId: first.id, expectedVersion: 4, idempotencyKey: 'read-key',
+    }, undefined, fetcher)
+    await markAllNotificationsRead('/graphql', 'token', {
+      throughCursor: '42', idempotencyKey: 'read-all-key',
+    }, undefined, fetcher)
+    expect(operations).toEqual(['MarkNotificationRead', 'MarkAllNotificationsRead'])
   })
 })
