@@ -13,13 +13,14 @@ import {
 import type { Notification } from '@vistay/admin-api-client'
 import { readMobileConfig, type MobileConfig } from './src/config'
 import { useMobileAuth } from './src/useMobileAuth'
-import { useNotificationStream, useViewer, type StreamStatus } from './src/useBackofficeData'
+import { useNotificationInbox, useViewer, type StreamStatus } from './src/useBackofficeData'
 import { AuthorizationWorkspace } from './src/AuthorizationWorkspace'
 import { AccountProvisioning } from './src/AccountProvisioning'
 import { SecuritySessions } from './src/SecuritySessions'
 import { PersonalProfileEditor } from './src/PersonalProfileEditor'
 import { AccountSecurityConsole } from './src/AccountSecurityConsole'
 import { InventoryWorkspace } from './src/InventoryWorkspace'
+import { NotificationInbox } from './src/NotificationInbox'
 
 WebBrowser.maybeCompleteAuthSession()
 
@@ -82,7 +83,7 @@ function LoginScreen({
   )
 }
 
-function NotificationCard({ notification }: { notification: Notification }) {
+export function NotificationCard({ notification }: { notification: Notification }) {
   const time = new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short', timeStyle: 'short' })
     .format(new Date(notification.createdAt))
   return (
@@ -109,7 +110,8 @@ function BackofficeScreen({ config, accessToken, onLogout }: {
   onLogout: () => void
 }) {
   const profile = useViewer(config.graphqlUrl, accessToken)
-  const stream = useNotificationStream(config.graphqlUrl, accessToken, profile.viewer?.accountId)
+  const inbox = useNotificationInbox(config.graphqlUrl, accessToken, profile.viewer?.accountId ?? '')
+  const stream = inbox
   const [section, setSection] = useState<'overview' | 'inventory' | 'accounts' | 'authorization'>('overview')
 
   return (
@@ -193,25 +195,7 @@ function BackofficeScreen({ config, accessToken, onLogout }: {
               onCurrentRevoked={onLogout}
             />
 
-            <View style={styles.sectionHeader}>
-              <View><Text style={styles.eyebrow}>DURABLE INBOX</Text><Text style={styles.sectionTitle}>Thông báo của bạn</Text></View>
-              <View style={[styles.livePill, stream.status === 'live' && styles.livePillActive]}><View style={styles.liveDot} /><Text style={styles.liveText}>{streamLabels[stream.status]}</Text></View>
-            </View>
-
-            {stream.error && (
-              <View style={styles.streamError}>
-                <Text style={styles.errorDetail}>{stream.error}</Text>
-                <Pressable accessibilityRole="button" onPress={stream.reconnect}><Text style={styles.errorAction}>Kết nối lại</Text></Pressable>
-              </View>
-            )}
-
-            {stream.notifications.length === 0 ? (
-              <View style={styles.empty}>
-                <Text style={styles.emptyIcon}>♢</Text>
-                <Text style={styles.emptyTitle}>Chưa có thông báo mới</Text>
-                <Text style={styles.emptyBody}>Thông báo chào mừng và bảo mật sẽ xuất hiện tại đây. Cursor được lưu để tiếp tục sau khi kết nối lại.</Text>
-              </View>
-            ) : stream.notifications.map((notification) => <NotificationCard key={notification.id} notification={notification} />)}
+            <NotificationInbox model={inbox} />
               </>
             ) : section === 'inventory' ? (
               <InventoryWorkspace graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} />
