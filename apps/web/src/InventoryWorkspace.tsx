@@ -284,9 +284,25 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
           <h2 id="inventory-title">Sơ đồ phòng rõ ràng, thao tác có kiểm soát.</h2>
           <p>Quan sát revision hiện tại, rà block theo ngày và chỉ thay đổi khi quyền cùng phiên bản dữ liệu còn hợp lệ.</p>
         </div>
-        <button className="inventory-create-button" disabled={!canManage || !page} onClick={() => setShowCreate(true)}>
-          <Plus weight="bold" /> Tạo block
-        </button>
+        <div className="inventory-heading-actions">
+          <div className="inventory-heading-signal" aria-label="Tóm tắt lịch phòng">
+            <div>
+              <span>Đang bán</span>
+              <strong>{availability ? (availability.available ? 'Có' : 'Chặn') : '—'}</strong>
+            </div>
+            <div>
+              <span>Block hiệu lực</span>
+              <strong>{page ? activeCount : '—'}</strong>
+            </div>
+            <div>
+              <span>Giao nhau</span>
+              <strong>{availability ? availability.overlaps.length : '—'}</strong>
+            </div>
+          </div>
+          <button className="inventory-create-button" disabled={!canManage || !page} onClick={() => setShowCreate(true)}>
+            <Plus weight="bold" /> Tạo block
+          </button>
+        </div>
       </header>
 
       <section className="inventory-toolbar" aria-label="Bộ lọc tồn phòng">
