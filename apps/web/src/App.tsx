@@ -1,6 +1,7 @@
 import {
   ArrowClockwise,
   Bell,
+  Buildings,
   CalendarDots,
   CheckCircle,
   FileText,
@@ -23,6 +24,7 @@ import { SecuritySessions } from './SecuritySessions'
 import { PersonalProfileEditor } from './PersonalProfileEditor'
 import { AccountSecurityConsole } from './AccountSecurityConsole'
 import { InventoryWorkspace } from './InventoryWorkspace'
+import { PropertyManagement } from './PropertyManagement'
 import { NotificationInbox } from './NotificationInbox'
 import { NotificationPreferences } from './NotificationPreferences'
 import { NotificationTemplateWorkspace } from './NotificationTemplateWorkspace'
@@ -90,11 +92,12 @@ function initials(name: string): string {
   return name.split(/\s+/).filter(Boolean).slice(-2).map((part) => part[0]).join('').toUpperCase()
 }
 
-type AdminPage = 'overview' | 'inventory' | 'profile' | 'notifications' | 'accounts' | 'authorization' | 'templates' | 'preferences'
+type AdminPage = 'overview' | 'inventory' | 'management' | 'profile' | 'notifications' | 'accounts' | 'authorization' | 'templates' | 'preferences'
 
 const pageTitles: Record<AdminPage, { eyebrow: string; title: string }> = {
   overview: { eyebrow: 'THÔNG TIN CHUNG', title: 'Toàn cảnh vận hành' },
   inventory: { eyebrow: 'TRUNG TÂM VẬN HÀNH', title: 'Tồn phòng & sơ đồ căn' },
+  management: { eyebrow: 'PROPERTY MASTER / UNIT CATALOG', title: 'Quản lý tòa và căn' },
   profile: { eyebrow: 'HỒ SƠ CÁ NHÂN', title: 'Phiên làm việc của bạn' },
   notifications: { eyebrow: 'DURABLE INBOX', title: 'Thông báo vận hành' },
   accounts: { eyebrow: 'QUẢN TRỊ DANH TÍNH', title: 'Tài khoản Backoffice' },
@@ -131,6 +134,7 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
         <nav aria-label="Điều hướng chính">
           <a className={activePage === 'overview' ? 'active' : ''} href="#overview" aria-label="Thông tin chung" title="Thông tin chung"><SquaresFour /><span>Thông tin chung</span></a>
           <a className={activePage === 'inventory' ? 'active' : ''} href="#inventory" aria-label="Sơ đồ phòng" title="Sơ đồ phòng"><CalendarDots /><span>Sơ đồ phòng</span></a>
+          <a className={activePage === 'management' ? 'active' : ''} href="#management" aria-label="Quản lý tòa" title="Quản lý tòa"><Buildings /><span>Quản lý tòa</span></a>
           <a className={activePage === 'profile' ? 'active' : ''} href="#profile" aria-label="Hồ sơ của tôi" title="Hồ sơ của tôi"><UserCircle /><span>Hồ sơ của tôi</span></a>
           <a className={activePage === 'notifications' ? 'active' : ''} href="#notifications" aria-label="Thông báo" title="Thông báo"><Bell /><span>Thông báo</span>{inbox.unreadCount > 0 && <i>{inbox.unreadCount}</i>}</a>
           <a className={activePage === 'accounts' ? 'active' : ''} href="#accounts" aria-label="Tài khoản" title="Tài khoản"><Key /><span>Tài khoản</span></a>
@@ -199,6 +203,7 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
             {activePage === 'inventory' && (
               <InventoryWorkspace graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} />
             )}
+            {activePage === 'management' && <PropertyManagement />}
 
             {activePage === 'profile' && <><section className="signal-grid" aria-label="Trạng thái phiên làm việc">
               <article>
