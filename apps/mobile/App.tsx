@@ -21,6 +21,7 @@ import { PersonalProfileEditor } from './src/PersonalProfileEditor'
 import { AccountSecurityConsole } from './src/AccountSecurityConsole'
 import { InventoryWorkspace } from './src/InventoryWorkspace'
 import { NotificationInbox } from './src/NotificationInbox'
+import { NotificationPreferences } from './src/NotificationPreferences'
 
 WebBrowser.maybeCompleteAuthSession()
 
@@ -112,7 +113,7 @@ function BackofficeScreen({ config, accessToken, onLogout }: {
   const profile = useViewer(config.graphqlUrl, accessToken)
   const inbox = useNotificationInbox(config.graphqlUrl, accessToken, profile.viewer?.accountId ?? '')
   const stream = inbox
-  const [section, setSection] = useState<'overview' | 'inventory' | 'accounts' | 'authorization'>('overview')
+  const [section, setSection] = useState<'overview' | 'inventory' | 'accounts' | 'authorization' | 'preferences'>('overview')
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -169,6 +170,14 @@ function BackofficeScreen({ config, accessToken, onLogout }: {
               >
                 <Text style={[styles.tabText, section === 'authorization' && styles.tabTextActive]}>Phân quyền</Text>
               </Pressable>
+              <Pressable
+                accessibilityRole="tab"
+                accessibilityState={{ selected: section === 'preferences' }}
+                onPress={() => setSection('preferences')}
+                style={[styles.tab, section === 'preferences' && styles.tabActive]}
+              >
+                <Text style={[styles.tabText, section === 'preferences' && styles.tabTextActive]}>Kenh nhan</Text>
+              </Pressable>
             </View>
 
             {section === 'overview' ? (
@@ -204,6 +213,8 @@ function BackofficeScreen({ config, accessToken, onLogout }: {
                 <AccountProvisioning authApiUrl={config.authApiUrl} accessToken={accessToken} viewer={profile.viewer} />
                 <AccountSecurityConsole authApiUrl={config.authApiUrl} accessToken={accessToken} viewer={profile.viewer} />
               </>
+            ) : section === 'preferences' ? (
+              <NotificationPreferences graphqlUrl={config.graphqlUrl} accessToken={accessToken} />
             ) : (
               <AuthorizationWorkspace graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} />
             )}

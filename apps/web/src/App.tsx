@@ -3,9 +3,11 @@ import {
   Bell,
   CalendarDots,
   CheckCircle,
+  FileText,
   Key,
   ShieldCheck,
   SignOut,
+  SlidersHorizontal,
   SpinnerGap,
   UserCircle,
   WarningCircle,
@@ -21,6 +23,8 @@ import { PersonalProfileEditor } from './PersonalProfileEditor'
 import { AccountSecurityConsole } from './AccountSecurityConsole'
 import { InventoryWorkspace } from './InventoryWorkspace'
 import { NotificationInbox } from './NotificationInbox'
+import { NotificationPreferences } from './NotificationPreferences'
+import { NotificationTemplateWorkspace } from './NotificationTemplateWorkspace'
 import type { RuntimeConfig } from './lib/config'
 import { useNotificationInbox, useViewer, type StreamStatus } from './lib/useBackofficeData'
 
@@ -85,7 +89,7 @@ function initials(name: string): string {
   return name.split(/\s+/).filter(Boolean).slice(-2).map((part) => part[0]).join('').toUpperCase()
 }
 
-type AdminPage = 'inventory' | 'profile' | 'notifications' | 'accounts' | 'authorization'
+type AdminPage = 'inventory' | 'profile' | 'notifications' | 'accounts' | 'authorization' | 'templates' | 'preferences'
 
 const pageTitles: Record<AdminPage, { eyebrow: string; title: string }> = {
   inventory: { eyebrow: 'TRUNG TÂM VẬN HÀNH', title: 'Tồn phòng & sơ đồ căn' },
@@ -93,6 +97,8 @@ const pageTitles: Record<AdminPage, { eyebrow: string; title: string }> = {
   notifications: { eyebrow: 'DURABLE INBOX', title: 'Thông báo vận hành' },
   accounts: { eyebrow: 'QUẢN TRỊ DANH TÍNH', title: 'Tài khoản Backoffice' },
   authorization: { eyebrow: 'KIỂM SOÁT TRUY CẬP', title: 'Phân quyền ba lớp' },
+  templates: { eyebrow: 'TEMPLATE CONTROL PLANE', title: 'Template thông báo' },
+  preferences: { eyebrow: 'CHANNEL POLICY', title: 'Kênh nhận thông báo' },
 }
 
 function pageFromHash(): AdminPage {
@@ -126,6 +132,8 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
           <a className={activePage === 'notifications' ? 'active' : ''} href="#notifications"><Bell /><span>Thông báo</span>{inbox.unreadCount > 0 && <i>{inbox.unreadCount}</i>}</a>
           <a className={activePage === 'accounts' ? 'active' : ''} href="#accounts"><Key /><span>Tài khoản</span></a>
           <a className={activePage === 'authorization' ? 'active' : ''} href="#authorization"><ShieldCheck /><span>Phân quyền</span></a>
+          <a className={activePage === 'templates' ? 'active' : ''} href="#templates"><FileText /><span>Template</span></a>
+          <a className={activePage === 'preferences' ? 'active' : ''} href="#preferences"><SlidersHorizontal /><span>Kênh nhận</span></a>
         </nav>
         <div className="rail-account"><button className="rail-avatar" title={displayName}>{initials(displayName)}</button><span><strong>{displayName}</strong><small>{profile.viewer?.roles[0] ?? 'Backoffice'}</small></span></div>
       </aside>
@@ -215,6 +223,8 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
               accessToken={accessToken}
               viewer={profile.viewer}
             />}
+            {activePage === 'templates' && <NotificationTemplateWorkspace graphqlUrl={config.graphqlUrl} accessToken={accessToken} />}
+            {activePage === 'preferences' && <NotificationPreferences graphqlUrl={config.graphqlUrl} accessToken={accessToken} />}
           </>
         )}
       </section>
