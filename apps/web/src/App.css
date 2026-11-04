@@ -827,3 +827,86 @@ a { color: inherit; text-decoration: none; }
   .building-add-floor { align-self: stretch; justify-content: center; }
   .unit-grid { grid-template-columns: repeat(2, minmax(112px, 1fr)); overflow-x: visible; }
 }
+
+/* Operations overview dashboard. */
+.overview-dashboard { margin-top: 42px; position: relative; }
+.overview-dashboard-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 26px; }
+.overview-dashboard-heading h2 { max-width: 860px; margin: 10px 0 10px; font-size: clamp(2.2rem, 4.2vw, 4.8rem); line-height: .95; letter-spacing: -.07em; }
+.overview-dashboard-heading p:last-child { max-width: 620px; margin: 0; color: var(--muted); font-size: .85rem; line-height: 1.6; }
+.overview-range { padding: 5px; border: 1px solid var(--line); border-radius: 11px; background: var(--card); display: flex; gap: 3px; }
+.overview-range button { padding: 9px 11px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: .62rem; font-weight: 700; white-space: nowrap; }
+.overview-range button:hover, .overview-range button.active { background: #173c2b; color: white; }
+.overview-kpi-grid { margin-top: 32px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; }
+.overview-kpi-card { min-height: 158px; padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: var(--card); display: flex; flex-direction: column; overflow: hidden; }
+.overview-kpi-card.kpi-guests { background: #eef6e5; border-color: #d9e9c9; }
+.overview-kpi-card.kpi-revenue { background: #173c2b; border-color: #173c2b; color: white; }
+.overview-kpi-card.kpi-occupancy { background: #f2f0e8; }
+.overview-kpi-icon { width: 31px; height: 31px; border-radius: 9px; background: #e6f0dc; color: #397455; display: grid; place-items: center; font-size: 1rem; }
+.kpi-revenue .overview-kpi-icon { background: #315d48; color: #c9f078; }
+.overview-kpi-card > span { margin-top: 12px; color: var(--muted); font-size: .63rem; }
+.kpi-revenue > span { color: #a5bcad; }
+.overview-kpi-card > strong { margin-top: auto; font-size: clamp(1.8rem, 2.7vw, 2.9rem); line-height: 1; letter-spacing: -.06em; }
+.overview-kpi-card > small { margin-top: 9px; color: #5e7567; display: flex; align-items: center; gap: 4px; font-size: .56rem; }
+.kpi-revenue > small { color: #afd0ba; }
+.overview-chart-grid { margin-top: 14px; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); grid-auto-flow: dense; gap: 10px; }
+.overview-chart-card { min-width: 0; min-height: 314px; padding: 20px; border: 1px solid var(--line); border-radius: 17px; background: var(--card); box-shadow: 0 16px 42px rgba(23,35,29,.035); }
+.revenue-chart-card { grid-column: span 7; }
+.occupancy-chart-card { grid-column: span 5; }
+.channel-chart-card { grid-column: span 5; }
+.arrivals-chart-card { grid-column: span 7; }
+.overview-chart-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.overview-chart-heading > svg { color: #6f941a; font-size: 1.4rem; }
+.overview-chart-heading h3 { margin: 7px 0 0; font-size: 1.2rem; letter-spacing: -.04em; }
+.chart-kicker { color: var(--muted); font-size: .56rem; font-weight: 750; letter-spacing: .12em; }
+.line-chart-wrap { margin-top: 28px; }
+.line-chart { width: 100%; height: 210px; overflow: visible; }
+.chart-grid-line { stroke: #e6e9e1; stroke-width: 1; }
+.chart-area { fill: url(#dashboardArea); fill: rgba(112,185,161,.12); }
+.chart-line { fill: none; stroke: #173c2b; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 780; }
+.chart-dot { fill: #fffef9; stroke: #173c2b; stroke-width: 3; }
+.chart-axis-labels { display: flex; justify-content: space-between; color: var(--muted); font-size: .53rem; }
+.occupancy-chart-body { min-height: 230px; display: flex; align-items: center; justify-content: center; gap: 30px; }
+.occupancy-ring { width: 170px; height: 170px; border-radius: 50%; display: grid; place-items: center; }
+.occupancy-ring > div { width: 124px; height: 124px; border-radius: 50%; background: var(--card); display: grid; place-content: center; justify-items: center; }
+.occupancy-ring strong { font-size: 2.25rem; line-height: 1; letter-spacing: -.06em; }
+.occupancy-ring span { margin-top: 6px; color: var(--muted); font-size: .58rem; }
+.occupancy-legend { display: grid; gap: 13px; }
+.occupancy-legend span { color: var(--muted); display: flex; align-items: center; gap: 7px; font-size: .62rem; white-space: nowrap; }
+.occupancy-legend i { width: 8px; height: 8px; border-radius: 50%; }
+.occupancy-legend strong { margin-left: auto; color: var(--ink); }
+.occupied-dot { background: #173c2b; }.available-dot { background: #c9df78; }.maintenance-dot { background: #e7a15e; }
+.channel-chart { min-height: 230px; padding: 18px 30px 4px; display: flex; align-items: end; justify-content: space-around; gap: 18px; }
+.channel-row { height: 202px; flex: 1; display: grid; grid-template-rows: auto 1fr; justify-items: center; gap: 12px; }
+.channel-row > div:first-child { display: grid; justify-items: center; gap: 4px; }
+.channel-row span { color: var(--muted); font-size: .58rem; white-space: nowrap; }
+.channel-row strong { font-size: 1rem; }
+.channel-track { width: 34px; height: 145px; border-radius: 99px 99px 7px 7px; background: #edf0e8; display: flex; align-items: end; overflow: hidden; }
+.overview-bar { width: 100%; display: block; border-radius: 99px 99px 7px 7px; }
+.arrival-list { margin-top: 22px; display: grid; gap: 9px; }
+.arrival-list > div { min-height: 58px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; display: grid; grid-template-columns: 58px 1fr; gap: 3px 12px; align-items: center; }
+.arrival-time { grid-row: 1 / span 2; color: #426d3d; font-size: .72rem; font-weight: 750; }
+.arrival-list strong { font-size: .66rem; }
+.arrival-list small { color: var(--muted); font-size: .55rem; }
+
+@media (max-width: 1060px) {
+  .overview-dashboard-heading { align-items: flex-start; flex-direction: column; }
+  .overview-range { align-self: flex-start; }
+  .overview-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .revenue-chart-card, .occupancy-chart-card, .channel-chart-card, .arrivals-chart-card { grid-column: span 12; }
+}
+
+@media (max-width: 560px) {
+  .overview-dashboard { margin-top: 34px; }
+  .overview-dashboard-heading h2 { font-size: 2.7rem; }
+  .overview-kpi-grid { grid-template-columns: 1fr 1fr; }
+  .overview-kpi-card { min-height: 134px; padding: 14px; }
+  .overview-kpi-card > strong { font-size: 1.65rem; }
+  .overview-kpi-card > small { font-size: .51rem; }
+  .overview-chart-card { padding: 16px; }
+  .occupancy-chart-body { flex-direction: column; gap: 20px; }
+  .occupancy-ring { width: 140px; height: 140px; }
+  .occupancy-ring > div { width: 104px; height: 104px; }
+  .occupancy-legend { width: 100%; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+  .occupancy-legend span { font-size: .51rem; flex-wrap: wrap; }
+  .occupancy-legend strong { margin-left: 0; }
+}
