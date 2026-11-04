@@ -25,6 +25,7 @@ import { PersonalProfileEditor } from './PersonalProfileEditor'
 import { AccountSecurityConsole } from './AccountSecurityConsole'
 import { InventoryWorkspace } from './InventoryWorkspace'
 import { PropertyManagement } from './PropertyManagement'
+import { OverviewDashboard } from './OverviewDashboard'
 import { NotificationInbox } from './NotificationInbox'
 import { NotificationPreferences } from './NotificationPreferences'
 import { NotificationTemplateWorkspace } from './NotificationTemplateWorkspace'
@@ -168,38 +169,7 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
 
         {profile.viewer && (
           <>
-            {activePage === 'overview' && <>
-              <section className="overview-intro">
-                <div>
-                  <p className="eyebrow">THÔNG TIN CHUNG</p>
-                  <h2>Mọi tín hiệu vận hành trong một màn hình.</h2>
-                  <p>Theo dõi danh tính, quyền truy cập và luồng thông báo trước khi đi sâu vào lịch phòng.</p>
-                </div>
-                <SquaresFour aria-hidden />
-              </section>
-              <section className="signal-grid" aria-label="Tổng quan phiên làm việc">
-                <article>
-                  <span>Danh tính</span>
-                  <strong>Đã xác minh</strong>
-                  <small><CheckCircle /> Backoffice Realm</small>
-                </article>
-                <article>
-                  <span>Vai trò</span>
-                  <strong>{profile.viewer.roles.length}</strong>
-                  <small>{profile.viewer.roles.join(', ') || 'Chưa gán vai trò'}</small>
-                </article>
-                <article>
-                  <span>Quyền hiệu lực</span>
-                  <strong>{profile.viewer.permissions.length}</strong>
-                  <small>Phiên bản {profile.viewer.authorizationVersion}</small>
-                </article>
-                <article className={`stream-signal ${inbox.status}`}>
-                  <span>Luồng thông báo</span>
-                  <strong>{streamLabels[inbox.status]}</strong>
-                  <small><WifiHigh /> GraphQL-over-SSE</small>
-                </article>
-              </section>
-            </>}
+            {activePage === 'overview' && <OverviewDashboard />}
             {activePage === 'inventory' && (
               <InventoryWorkspace graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} />
             )}
