@@ -3,10 +3,11 @@ import {
   Bell,
   CalendarDots,
   CheckCircle,
+  FileText,
   Key,
-  LockKey,
   ShieldCheck,
   SignOut,
+  SlidersHorizontal,
   SpinnerGap,
   UserCircle,
   WarningCircle,
@@ -14,7 +15,6 @@ import {
 } from '@phosphor-icons/react'
 import { useEffect, useState } from 'react'
 import { useAuth } from 'react-oidc-context'
-import type { Notification } from '@vistay/admin-api-client'
 import './App.css'
 import { AuthorizationConsole } from './AuthorizationConsole'
 import { AccountProvisioning } from './AccountProvisioning'
@@ -22,8 +22,11 @@ import { SecuritySessions } from './SecuritySessions'
 import { PersonalProfileEditor } from './PersonalProfileEditor'
 import { AccountSecurityConsole } from './AccountSecurityConsole'
 import { InventoryWorkspace } from './InventoryWorkspace'
+import { NotificationInbox } from './NotificationInbox'
+import { NotificationPreferences } from './NotificationPreferences'
+import { NotificationTemplateWorkspace } from './NotificationTemplateWorkspace'
 import type { RuntimeConfig } from './lib/config'
-import { useNotificationStream, useViewer, type StreamStatus } from './lib/useBackofficeData'
+import { useNotificationInbox, useViewer, type StreamStatus } from './lib/useBackofficeData'
 
 interface AppProps {
   config: RuntimeConfig
@@ -82,32 +85,11 @@ function LoginScreen({ error, onLogin }: { error?: string; onLogin: () => void }
   )
 }
 
-function NotificationItem({ notification }: { notification: Notification }) {
-  const createdAt = new Intl.DateTimeFormat('vi-VN', {
-    dateStyle: 'short',
-    timeStyle: 'short',
-  }).format(new Date(notification.createdAt))
-
-  return (
-    <article className="notification-card">
-      <div className={`notification-icon ${notification.category.toLowerCase()}`}>
-        {notification.category === 'SECURITY' ? <LockKey /> : <CheckCircle />}
-      </div>
-      <div className="notification-copy">
-        <div><span>{notification.category === 'SECURITY' ? 'Bảo mật' : 'Chào mừng'}</span><time>{createdAt}</time></div>
-        <h3>{notification.title}</h3>
-        <p>{notification.body}</p>
-        <small>{notification.channels.join(' · ')}</small>
-      </div>
-    </article>
-  )
-}
-
 function initials(name: string): string {
   return name.split(/\s+/).filter(Boolean).slice(-2).map((part) => part[0]).join('').toUpperCase()
 }
 
-type AdminPage = 'inventory' | 'profile' | 'notifications' | 'accounts' | 'authorization'
+type AdminPage = 'inventory' | 'profile' | 'notifications' | 'accounts' | 'authorization' | 'templates' | 'preferences'
 
 const pageTitles: Record<AdminPage, { eyebrow: string; title: string }> = {
   inventory: { eyebrow: 'TRUNG TÂM VẬN HÀNH', title: 'Tồn phòng & sơ đồ căn' },
@@ -115,17 +97,19 @@ const pageTitles: Record<AdminPage, { eyebrow: string; title: string }> = {
   notifications: { eyebrow: 'DURABLE INBOX', title: 'Thông báo vận hành' },
   accounts: { eyebrow: 'QUẢN TRỊ DANH TÍNH', title: 'Tài khoản Backoffice' },
   authorization: { eyebrow: 'KIỂM SOÁT TRUY CẬP', title: 'Phân quyền ba lớp' },
+  templates: { eyebrow: 'TEMPLATE CONTROL PLANE', title: 'Template thông báo' },
+  preferences: { eyebrow: 'CHANNEL POLICY', title: 'Kênh nhận thông báo' },
 }
 
 function pageFromHash(): AdminPage {
-  const page = window.location.hash.replace('#', '') as AdminPage
+  const page = window.location.hash.replace(/^#/, '').split('?')[0] as AdminPage
   return page in pageTitles ? page : 'inventory'
 }
 
 function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: string }) {
   const auth = useAuth()
   const profile = useViewer(config.graphqlUrl, accessToken)
-  const stream = useNotificationStream(config.graphqlUrl, accessToken, profile.viewer?.accountId)
+  const inbox = useNotificationInbox(config.graphqlUrl, accessToken, profile.viewer?.accountId)
   const displayName = profile.viewer?.displayName ?? auth.user?.profile.preferred_username ?? 'Backoffice'
   const [activePage, setActivePage] = useState<AdminPage>(pageFromHash)
 
@@ -145,9 +129,11 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
         <nav aria-label="Điều hướng chính">
           <a className={activePage === 'inventory' ? 'active' : ''} href="#inventory"><CalendarDots /><span>Sơ đồ phòng</span></a>
           <a className={activePage === 'profile' ? 'active' : ''} href="#profile"><UserCircle /><span>Hồ sơ của tôi</span></a>
-          <a className={activePage === 'notifications' ? 'active' : ''} href="#notifications"><Bell /><span>Thông báo</span>{stream.notifications.length > 0 && <i>{stream.notifications.length}</i>}</a>
+          <a className={activePage === 'notifications' ? 'active' : ''} href="#notifications"><Bell /><span>Thông báo</span>{inbox.unreadCount > 0 && <i>{inbox.unreadCount}</i>}</a>
           <a className={activePage === 'accounts' ? 'active' : ''} href="#accounts"><Key /><span>Tài khoản</span></a>
           <a className={activePage === 'authorization' ? 'active' : ''} href="#authorization"><ShieldCheck /><span>Phân quyền</span></a>
+          <a className={activePage === 'templates' ? 'active' : ''} href="#templates"><FileText /><span>Template</span></a>
+          <a className={activePage === 'preferences' ? 'active' : ''} href="#preferences"><SlidersHorizontal /><span>Kênh nhận</span></a>
         </nav>
         <div className="rail-account"><button className="rail-avatar" title={displayName}>{initials(displayName)}</button><span><strong>{displayName}</strong><small>{profile.viewer?.roles[0] ?? 'Backoffice'}</small></span></div>
       </aside>
@@ -158,7 +144,7 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
             <p className="eyebrow">{pageTitle.eyebrow}</p>
             <h1>{pageTitle.title}</h1>
           </div>
-          <div className="topbar-actions"><span className={`connection-chip ${stream.status}`}><i />{streamLabels[stream.status]}</span><button className="secondary-button" onClick={() => void auth.signoutRedirect()}>Đăng xuất <SignOut /></button></div>
+          <div className="topbar-actions"><span className={`connection-chip ${inbox.status}`}><i />{streamLabels[inbox.status]}</span><button className="secondary-button" onClick={() => void auth.signoutRedirect()}>Đăng xuất <SignOut /></button></div>
         </header>
 
         {profile.status === 'loading' && (
@@ -195,9 +181,9 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
                 <strong>{profile.viewer.permissions.length}</strong>
                 <small>Phiên bản {profile.viewer.authorizationVersion}</small>
               </article>
-              <article className={`stream-signal ${stream.status}`}>
+              <article className={`stream-signal ${inbox.status}`}>
                 <span>Luồng thông báo</span>
-                <strong>{streamLabels[stream.status]}</strong>
+                <strong>{streamLabels[inbox.status]}</strong>
                 <small><WifiHigh /> GraphQL-over-SSE</small>
               </article>
             </section>
@@ -220,14 +206,7 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
 
             </section></>}
 
-            {activePage === 'notifications' && <section className="notification-section standalone-section" id="notifications">
-              <div className="section-heading">
-                <div><p className="eyebrow">DURABLE INBOX</p><h2>Thông báo của bạn</h2></div>
-                <span className={`live-pill ${stream.status}`}><i />{streamLabels[stream.status]}</span>
-              </div>
-              {stream.error && <div className="stream-error" role="alert"><span>{stream.error}</span><button onClick={stream.reconnect}><ArrowClockwise /> Kết nối lại</button></div>}
-              {stream.notifications.length === 0 ? <div className="empty-state"><Bell weight="duotone" /><h3>Chưa có thông báo mới</h3><p>Thông báo chào mừng và cảnh báo bảo mật sẽ xuất hiện tại đây. Cursor được lưu để tiếp tục sau khi kết nối lại.</p></div> : <div className="notification-list">{stream.notifications.map((notification) => <NotificationItem key={notification.id} notification={notification} />)}</div>}
-            </section>}
+            {activePage === 'notifications' && <NotificationInbox model={inbox} />}
 
             {activePage === 'accounts' && <><AccountProvisioning
               authApiUrl={config.authApiUrl}
@@ -244,6 +223,8 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
               accessToken={accessToken}
               viewer={profile.viewer}
             />}
+            {activePage === 'templates' && <NotificationTemplateWorkspace graphqlUrl={config.graphqlUrl} accessToken={accessToken} />}
+            {activePage === 'preferences' && <NotificationPreferences graphqlUrl={config.graphqlUrl} accessToken={accessToken} />}
           </>
         )}
       </section>

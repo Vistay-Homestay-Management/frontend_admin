@@ -25,15 +25,206 @@ export const NOTIFICATION_STREAM_SUBSCRIPTION = `
         title
         body
         channels
+        requiredChannels
+        optionalChannels
+        notificationType
+        priority
+        reference { type id actionUrl }
+        templateKey
+        templateRevision
+        policyRevision
+        inboxRevision
         createdAt
         readAt
+        version
       }
     }
   }
 `
 
-export type NotificationCategory = 'WELCOME' | 'SECURITY'
+export const NOTIFICATION_INBOX_QUERY = `
+  query NotificationInbox($input: NotificationInboxInput) {
+    notificationInbox(input: $input) {
+      nodes {
+        id
+        category
+        title
+        body
+        channels
+        requiredChannels
+        optionalChannels
+        notificationType
+        priority
+        reference { type id actionUrl }
+        templateKey
+        templateRevision
+        policyRevision
+        inboxRevision
+        createdAt
+        readAt
+        version
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+        startCursor
+        cursorState
+        retainedFrom
+        reconcileFrom
+      }
+      unread {
+        count
+        asOfCursor
+        inboxRevision
+      }
+    }
+  }
+`
+
+export const UNREAD_NOTIFICATION_COUNT_QUERY = `
+  query UnreadNotificationCount {
+    unreadNotificationCount {
+      count
+      asOfCursor
+      inboxRevision
+    }
+  }
+`
+
+export const MARK_NOTIFICATION_READ_MUTATION = `
+  mutation MarkNotificationRead($input: MarkNotificationReadInput!) {
+    markNotificationRead(input: $input) {
+      id
+      readAt
+      inboxRevision
+      version
+    }
+  }
+`
+
+export const MARK_ALL_NOTIFICATIONS_READ_MUTATION = `
+  mutation MarkAllNotificationsRead($input: MarkAllNotificationsReadInput!) {
+    markAllNotificationsRead(input: $input) {
+      markedCount
+      throughCursor
+      inboxRevision
+    }
+  }
+`
+
+export const NOTIFICATION_PREFERENCES_QUERY = `
+  query NotificationPreferences {
+    notificationPreferences {
+      revision
+      nodes {
+        id
+        notificationType
+        channel
+        enabled
+        required
+        quietHours { start end }
+        timeZoneId
+        revision
+        updatedAt
+      }
+    }
+  }
+`
+
+export const UPDATE_NOTIFICATION_PREFERENCES_MUTATION = `
+  mutation UpdateNotificationPreferences($input: UpdateNotificationPreferencesInput!) {
+    updateNotificationPreferences(input: $input) {
+      revision
+      nodes {
+        id
+        notificationType
+        channel
+        enabled
+        required
+        quietHours { start end }
+        timeZoneId
+        revision
+        updatedAt
+      }
+    }
+  }
+`
+
+const NOTIFICATION_TEMPLATE_FIELDS = `
+  id
+  templateKey
+  channel
+  locale
+  status
+  revision
+  policyRevision
+  requiredVariables
+  subject
+  body
+  immutable
+  createdAt
+  publishedAt
+  retiredAt
+`
+
+export const NOTIFICATION_TEMPLATES_QUERY = `
+  query NotificationTemplates($input: NotificationTemplateQueryInput) {
+    notificationTemplates(input: $input) {
+      nodes { ${NOTIFICATION_TEMPLATE_FIELDS} }
+      pageInfo {
+        hasNextPage
+        endCursor
+        startCursor
+        cursorState
+        retainedFrom
+        reconcileFrom
+      }
+    }
+  }
+`
+
+export const SAVE_NOTIFICATION_TEMPLATE_DRAFT_MUTATION = `
+  mutation SaveNotificationTemplateDraft($input: PublishNotificationTemplateInput!) {
+    saveNotificationTemplateDraft(input: $input) { ${NOTIFICATION_TEMPLATE_FIELDS} }
+  }
+`
+
+export const PREVIEW_NOTIFICATION_TEMPLATE_MUTATION = `
+  mutation PreviewNotificationTemplate($input: PreviewNotificationTemplateInput!) {
+    previewNotificationTemplate(input: $input) {
+      templateKey
+      channel
+      locale
+      revision
+      subject
+      body
+    }
+  }
+`
+
+export const PUBLISH_NOTIFICATION_TEMPLATE_MUTATION = `
+  mutation PublishNotificationTemplate($input: PublishNotificationTemplateInput!) {
+    publishNotificationTemplate(input: $input) { ${NOTIFICATION_TEMPLATE_FIELDS} }
+  }
+`
+
+export const RETIRE_NOTIFICATION_TEMPLATE_MUTATION = `
+  mutation RetireNotificationTemplate($input: RetireNotificationTemplateInput!) {
+    retireNotificationTemplate(input: $input) { ${NOTIFICATION_TEMPLATE_FIELDS} }
+  }
+`
+
+export type NotificationCategory = 'WELCOME' | 'SECURITY' | 'BOOKING' | 'OPERATIONS' | 'FINANCE' | 'SYSTEM'
+export type NotificationPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT'
 export type NotificationChannel = 'IN_APP' | 'EMAIL' | 'PUSH'
+export type NotificationCursorState = 'ACTIVE' | 'EXPIRED' | 'INVALID' | 'RESYNC_REQUIRED'
+export type NotificationTemplateStatus = 'DRAFT' | 'PUBLISHED' | 'RETIRED'
+
+export interface NotificationReference {
+  type: string
+  id: string
+  actionUrl?: string | null
+}
 
 export interface BackofficeViewer {
   accountId: string
@@ -343,13 +534,181 @@ export interface Notification {
   title: string
   body: string
   channels: NotificationChannel[]
+  requiredChannels?: NotificationChannel[]
+  optionalChannels?: NotificationChannel[]
+  notificationType?: string | null
+  priority?: NotificationPriority | null
+  reference?: NotificationReference | null
+  templateKey?: string | null
+  templateRevision?: number | null
+  policyRevision?: number | null
+  inboxRevision?: number | null
   createdAt: string
   readAt: string | null
+  version?: number | null
 }
 
 export interface NotificationStreamEvent {
   cursor: string
   notification: Notification
+}
+
+export interface NotificationInboxInput {
+  afterCursor?: string | null
+  limit?: number
+  unreadOnly?: boolean
+  category?: NotificationCategory
+}
+
+export interface NotificationPageInfo {
+  hasNextPage: boolean
+  endCursor: string | null
+  startCursor: string | null
+  cursorState: NotificationCursorState
+  retainedFrom: string | null
+  reconcileFrom: string | null
+}
+
+export interface UnreadNotificationCount {
+  count: number
+  asOfCursor: string
+  inboxRevision: number
+}
+
+export interface NotificationInboxPage {
+  nodes: Notification[]
+  pageInfo: NotificationPageInfo
+  unread: UnreadNotificationCount
+}
+
+export interface MarkNotificationReadInput {
+  notificationId: string
+  expectedVersion: number
+  idempotencyKey: string
+}
+
+export interface NotificationReadResult {
+  id: string
+  readAt: string | null
+  inboxRevision: number
+  version: number
+}
+
+export interface MarkAllNotificationsReadInput {
+  throughCursor: string
+  idempotencyKey: string
+}
+
+export interface MarkAllNotificationsReadResult {
+  markedCount: number
+  throughCursor: string
+  inboxRevision: number
+}
+
+export interface NotificationQuietHours {
+  start: string
+  end: string
+}
+
+export interface NotificationPreference {
+  id: string
+  notificationType: string
+  channel: NotificationChannel
+  enabled: boolean
+  required: boolean
+  quietHours: NotificationQuietHours | null
+  timeZoneId: string
+  revision: number
+  updatedAt: string
+}
+
+export interface NotificationPreferenceConnection {
+  nodes: NotificationPreference[]
+  revision: number
+}
+
+export interface NotificationPreferenceUpdateInput {
+  notificationType: string
+  channel: NotificationChannel
+  enabled: boolean
+  quietHours: NotificationQuietHours | null
+  timeZoneId: string
+  expectedVersion: number
+}
+
+export interface UpdateNotificationPreferencesInput {
+  updates: NotificationPreferenceUpdateInput[]
+  idempotencyKey: string
+}
+
+export interface NotificationTemplateQueryInput {
+  templateKey?: string
+  channel?: NotificationChannel
+  status?: NotificationTemplateStatus
+  afterCursor?: string | null
+  limit?: number
+}
+
+export interface NotificationTemplate {
+  id: string
+  templateKey: string
+  channel: NotificationChannel
+  locale: string
+  status: NotificationTemplateStatus
+  revision: number
+  policyRevision: number
+  requiredVariables: string[]
+  subject?: string | null
+  body?: string | null
+  immutable?: boolean
+  createdAt?: string
+  publishedAt?: string | null
+  retiredAt?: string | null
+}
+
+export interface NotificationTemplatePage {
+  nodes: NotificationTemplate[]
+  pageInfo: NotificationPageInfo
+}
+
+export interface NotificationTemplatePublishInput {
+  templateKey: string
+  channel: NotificationChannel
+  locale: string
+  subject?: string | null
+  body: string
+  requiredVariables: string[]
+  policyRevision: number
+  expectedVersion?: number | null
+  idempotencyKey: string
+}
+
+export interface NotificationTemplatePreviewVariable {
+  name: string
+  value: string
+}
+
+export interface NotificationTemplatePreviewInput {
+  templateKey: string
+  channel: NotificationChannel
+  locale: string
+  variables: NotificationTemplatePreviewVariable[]
+}
+
+export interface NotificationTemplatePreview {
+  templateKey: string
+  channel: NotificationChannel
+  locale: string
+  revision: number
+  subject?: string | null
+  body: string
+}
+
+export interface NotificationTemplateRetireInput {
+  templateId: string
+  expectedVersion: number
+  reason: string
+  idempotencyKey: string
 }
 
 interface GraphqlResponse<T> {
@@ -376,6 +735,10 @@ export class ApiError extends Error {
 function graphqlErrorMessage(errors: GraphqlResponse<unknown>['errors']): string {
   return errors?.map((error) => error.message ?? 'Lỗi GraphQL không xác định').join('; ')
     ?? 'Phản hồi GraphQL không hợp lệ'
+}
+
+function graphqlErrorCode(errors: GraphqlResponse<unknown>['errors']): string | undefined {
+  return errors?.find((error) => error.extensions?.code)?.extensions?.code
 }
 
 export async function provisionBackofficeAccount(
@@ -583,6 +946,213 @@ export async function fetchViewer(
     throw new ApiError('Gateway không trả về hồ sơ người dùng')
   }
   return payload.data.viewer
+}
+
+export async function fetchNotificationInbox(
+  graphqlUrl: string,
+  accessToken: string,
+  input: NotificationInboxInput = { limit: 50 },
+  signal?: AbortSignal,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<NotificationInboxPage> {
+  const data = await graphqlRequest<{ notificationInbox: NotificationInboxPage }>(
+    graphqlUrl,
+    accessToken,
+    'NotificationInbox',
+    NOTIFICATION_INBOX_QUERY,
+    { input },
+    signal,
+    fetcher,
+  )
+  return data.notificationInbox
+}
+
+export async function fetchUnreadNotificationCount(
+  graphqlUrl: string,
+  accessToken: string,
+  signal?: AbortSignal,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<UnreadNotificationCount> {
+  const data = await graphqlRequest<{ unreadNotificationCount: UnreadNotificationCount }>(
+    graphqlUrl,
+    accessToken,
+    'UnreadNotificationCount',
+    UNREAD_NOTIFICATION_COUNT_QUERY,
+    {},
+    signal,
+    fetcher,
+  )
+  return data.unreadNotificationCount
+}
+
+export async function markNotificationRead(
+  graphqlUrl: string,
+  accessToken: string,
+  input: MarkNotificationReadInput,
+  signal?: AbortSignal,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<NotificationReadResult> {
+  const data = await graphqlRequest<{ markNotificationRead: NotificationReadResult }>(
+    graphqlUrl,
+    accessToken,
+    'MarkNotificationRead',
+    MARK_NOTIFICATION_READ_MUTATION,
+    { input },
+    signal,
+    fetcher,
+  )
+  return data.markNotificationRead
+}
+
+export async function markAllNotificationsRead(
+  graphqlUrl: string,
+  accessToken: string,
+  input: MarkAllNotificationsReadInput,
+  signal?: AbortSignal,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<MarkAllNotificationsReadResult> {
+  const data = await graphqlRequest<{ markAllNotificationsRead: MarkAllNotificationsReadResult }>(
+    graphqlUrl,
+    accessToken,
+    'MarkAllNotificationsRead',
+    MARK_ALL_NOTIFICATIONS_READ_MUTATION,
+    { input },
+    signal,
+    fetcher,
+  )
+  return data.markAllNotificationsRead
+}
+
+export async function fetchNotificationPreferences(
+  graphqlUrl: string,
+  accessToken: string,
+  signal?: AbortSignal,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<NotificationPreferenceConnection> {
+  const data = await graphqlRequest<{ notificationPreferences: NotificationPreferenceConnection }>(
+    graphqlUrl,
+    accessToken,
+    'NotificationPreferences',
+    NOTIFICATION_PREFERENCES_QUERY,
+    {},
+    signal,
+    fetcher,
+  )
+  return data.notificationPreferences
+}
+
+export async function updateNotificationPreferences(
+  graphqlUrl: string,
+  accessToken: string,
+  input: UpdateNotificationPreferencesInput,
+  signal?: AbortSignal,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<NotificationPreferenceConnection> {
+  const data = await graphqlRequest<{ updateNotificationPreferences: NotificationPreferenceConnection }>(
+    graphqlUrl,
+    accessToken,
+    'UpdateNotificationPreferences',
+    UPDATE_NOTIFICATION_PREFERENCES_MUTATION,
+    { input },
+    signal,
+    fetcher,
+  )
+  return data.updateNotificationPreferences
+}
+
+export async function fetchNotificationTemplates(
+  graphqlUrl: string,
+  accessToken: string,
+  input: NotificationTemplateQueryInput = { limit: 25 },
+  signal?: AbortSignal,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<NotificationTemplatePage> {
+  const data = await graphqlRequest<{ notificationTemplates: NotificationTemplatePage }>(
+    graphqlUrl,
+    accessToken,
+    'NotificationTemplates',
+    NOTIFICATION_TEMPLATES_QUERY,
+    { input },
+    signal,
+    fetcher,
+  )
+  return data.notificationTemplates
+}
+
+export async function saveNotificationTemplateDraft(
+  graphqlUrl: string,
+  accessToken: string,
+  input: NotificationTemplatePublishInput,
+  signal?: AbortSignal,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<NotificationTemplate> {
+  const data = await graphqlRequest<{ saveNotificationTemplateDraft: NotificationTemplate }>(
+    graphqlUrl,
+    accessToken,
+    'SaveNotificationTemplateDraft',
+    SAVE_NOTIFICATION_TEMPLATE_DRAFT_MUTATION,
+    { input },
+    signal,
+    fetcher,
+  )
+  return data.saveNotificationTemplateDraft
+}
+
+export async function previewNotificationTemplate(
+  graphqlUrl: string,
+  accessToken: string,
+  input: NotificationTemplatePreviewInput,
+  signal?: AbortSignal,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<NotificationTemplatePreview> {
+  const data = await graphqlRequest<{ previewNotificationTemplate: NotificationTemplatePreview }>(
+    graphqlUrl,
+    accessToken,
+    'PreviewNotificationTemplate',
+    PREVIEW_NOTIFICATION_TEMPLATE_MUTATION,
+    { input },
+    signal,
+    fetcher,
+  )
+  return data.previewNotificationTemplate
+}
+
+export async function publishNotificationTemplate(
+  graphqlUrl: string,
+  accessToken: string,
+  input: NotificationTemplatePublishInput,
+  signal?: AbortSignal,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<NotificationTemplate> {
+  const data = await graphqlRequest<{ publishNotificationTemplate: NotificationTemplate }>(
+    graphqlUrl,
+    accessToken,
+    'PublishNotificationTemplate',
+    PUBLISH_NOTIFICATION_TEMPLATE_MUTATION,
+    { input },
+    signal,
+    fetcher,
+  )
+  return data.publishNotificationTemplate
+}
+
+export async function retireNotificationTemplate(
+  graphqlUrl: string,
+  accessToken: string,
+  input: NotificationTemplateRetireInput,
+  signal?: AbortSignal,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<NotificationTemplate> {
+  const data = await graphqlRequest<{ retireNotificationTemplate: NotificationTemplate }>(
+    graphqlUrl,
+    accessToken,
+    'RetireNotificationTemplate',
+    RETIRE_NOTIFICATION_TEMPLATE_MUTATION,
+    { input },
+    signal,
+    fetcher,
+  )
+  return data.retireNotificationTemplate
 }
 
 const UPDATE_MY_PROFILE_MUTATION = `
@@ -1081,7 +1651,9 @@ function decodeNotificationFrame(frame: SseFrame): NotificationStreamEvent | und
   const payload = JSON.parse(frame.data) as GraphqlResponse<{
     notificationStream: NotificationStreamEvent
   }>
-  if (payload.errors?.length) throw new ApiError(graphqlErrorMessage(payload.errors))
+  if (payload.errors?.length) {
+    throw new ApiError(graphqlErrorMessage(payload.errors), undefined, graphqlErrorCode(payload.errors))
+  }
   const streamEvent = payload.data?.notificationStream
   if (!streamEvent) return undefined
   if (!isDurableCursor(streamEvent.cursor)) {
@@ -1149,11 +1721,68 @@ export function isDurableCursor(value: string | null | undefined): value is stri
   return typeof value === 'string' && /^(0|[1-9][0-9]*)$/.test(value)
 }
 
+export function notificationRevision(notification: Notification): number {
+  return notification.inboxRevision ?? notification.version ?? 0
+}
+
+/** Merge an ordered server page without allowing an older replay to overwrite a newer row. */
+export function mergeNotifications(
+  existing: Notification[],
+  incoming: Notification[],
+  limit = 50,
+): Notification[] {
+  const merged = [...existing]
+  const indexes = new Map(merged.map((notification, index) => [notification.id, index]))
+  for (const notification of incoming) {
+    const index = indexes.get(notification.id)
+    if (index === undefined) {
+      indexes.set(notification.id, merged.length)
+      merged.push(notification)
+      continue
+    }
+    const current = merged[index]
+    if (current && notificationRevision(notification) >= notificationRevision(current)) {
+      merged[index] = notification
+    }
+  }
+  return merged.slice(0, Math.max(1, limit))
+}
+
+/** Map only known first-party references to local routes; raw actionUrl is intentionally ignored. */
+export function mapNotificationReference(reference: NotificationReference | null | undefined): string | null {
+  if (!reference) return null
+  const type = reference.type.trim().toUpperCase()
+  const id = reference.id.trim()
+  if (!id || id.length > 128 || /[\u0000-\u001f\u007f]/.test(id)) return null
+  const encodedId = encodeURIComponent(id)
+  switch (type) {
+    case 'BOOKING':
+      return `#inventory?reference=${encodedId}`
+    case 'PROPERTY':
+      return `#inventory?property=${encodedId}`
+    case 'ACCOUNT':
+      return `#accounts?account=${encodedId}`
+    case 'AUTHORIZATION':
+      return `#authorization?subject=${encodedId}`
+    case 'NOTIFICATION':
+      return `#notifications?notification=${encodedId}`
+    default:
+      return null
+  }
+}
+
 export function prependNotification(
   notifications: Notification[],
   incoming: Notification,
   limit = 50,
 ): Notification[] {
-  if (notifications.some((notification) => notification.id === incoming.id)) return notifications
+  const existingIndex = notifications.findIndex((notification) => notification.id === incoming.id)
+  if (existingIndex >= 0) {
+    const existing = notifications[existingIndex]
+    if (!existing || notificationRevision(incoming) <= notificationRevision(existing)) return notifications
+    const updated = [...notifications]
+    updated[existingIndex] = incoming
+    return updated
+  }
   return [incoming, ...notifications].slice(0, limit)
 }
