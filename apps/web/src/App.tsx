@@ -9,6 +9,7 @@ import {
   SignOut,
   SlidersHorizontal,
   SpinnerGap,
+  SquaresFour,
   UserCircle,
   WarningCircle,
   WifiHigh,
@@ -89,9 +90,10 @@ function initials(name: string): string {
   return name.split(/\s+/).filter(Boolean).slice(-2).map((part) => part[0]).join('').toUpperCase()
 }
 
-type AdminPage = 'inventory' | 'profile' | 'notifications' | 'accounts' | 'authorization' | 'templates' | 'preferences'
+type AdminPage = 'overview' | 'inventory' | 'profile' | 'notifications' | 'accounts' | 'authorization' | 'templates' | 'preferences'
 
 const pageTitles: Record<AdminPage, { eyebrow: string; title: string }> = {
+  overview: { eyebrow: 'THÔNG TIN CHUNG', title: 'Toàn cảnh vận hành' },
   inventory: { eyebrow: 'TRUNG TÂM VẬN HÀNH', title: 'Tồn phòng & sơ đồ căn' },
   profile: { eyebrow: 'HỒ SƠ CÁ NHÂN', title: 'Phiên làm việc của bạn' },
   notifications: { eyebrow: 'DURABLE INBOX', title: 'Thông báo vận hành' },
@@ -125,15 +127,16 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
   return (
     <main className="admin-shell">
       <aside className="rail">
-        <a className="rail-mark" href="#inventory" aria-label="ViStay"><span className="rail-symbol">V</span><strong>ViStay</strong><small>Admin workspace</small></a>
+        <a className="rail-mark" href="#overview" aria-label="ViStay" title="ViStay"><span className="rail-symbol">V</span><strong>ViStay</strong><small>Admin workspace</small></a>
         <nav aria-label="Điều hướng chính">
-          <a className={activePage === 'inventory' ? 'active' : ''} href="#inventory"><CalendarDots /><span>Sơ đồ phòng</span></a>
-          <a className={activePage === 'profile' ? 'active' : ''} href="#profile"><UserCircle /><span>Hồ sơ của tôi</span></a>
-          <a className={activePage === 'notifications' ? 'active' : ''} href="#notifications"><Bell /><span>Thông báo</span>{inbox.unreadCount > 0 && <i>{inbox.unreadCount}</i>}</a>
-          <a className={activePage === 'accounts' ? 'active' : ''} href="#accounts"><Key /><span>Tài khoản</span></a>
-          <a className={activePage === 'authorization' ? 'active' : ''} href="#authorization"><ShieldCheck /><span>Phân quyền</span></a>
-          <a className={activePage === 'templates' ? 'active' : ''} href="#templates"><FileText /><span>Template</span></a>
-          <a className={activePage === 'preferences' ? 'active' : ''} href="#preferences"><SlidersHorizontal /><span>Kênh nhận</span></a>
+          <a className={activePage === 'overview' ? 'active' : ''} href="#overview" aria-label="Thông tin chung" title="Thông tin chung"><SquaresFour /><span>Thông tin chung</span></a>
+          <a className={activePage === 'inventory' ? 'active' : ''} href="#inventory" aria-label="Sơ đồ phòng" title="Sơ đồ phòng"><CalendarDots /><span>Sơ đồ phòng</span></a>
+          <a className={activePage === 'profile' ? 'active' : ''} href="#profile" aria-label="Hồ sơ của tôi" title="Hồ sơ của tôi"><UserCircle /><span>Hồ sơ của tôi</span></a>
+          <a className={activePage === 'notifications' ? 'active' : ''} href="#notifications" aria-label="Thông báo" title="Thông báo"><Bell /><span>Thông báo</span>{inbox.unreadCount > 0 && <i>{inbox.unreadCount}</i>}</a>
+          <a className={activePage === 'accounts' ? 'active' : ''} href="#accounts" aria-label="Tài khoản" title="Tài khoản"><Key /><span>Tài khoản</span></a>
+          <a className={activePage === 'authorization' ? 'active' : ''} href="#authorization" aria-label="Phân quyền" title="Phân quyền"><ShieldCheck /><span>Phân quyền</span></a>
+          <a className={activePage === 'templates' ? 'active' : ''} href="#templates" aria-label="Template" title="Template"><FileText /><span>Template</span></a>
+          <a className={activePage === 'preferences' ? 'active' : ''} href="#preferences" aria-label="Kênh nhận" title="Kênh nhận"><SlidersHorizontal /><span>Kênh nhận</span></a>
         </nav>
         <div className="rail-account"><button className="rail-avatar" title={displayName}>{initials(displayName)}</button><span><strong>{displayName}</strong><small>{profile.viewer?.roles[0] ?? 'Backoffice'}</small></span></div>
       </aside>
@@ -161,6 +164,38 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
 
         {profile.viewer && (
           <>
+            {activePage === 'overview' && <>
+              <section className="overview-intro">
+                <div>
+                  <p className="eyebrow">THÔNG TIN CHUNG</p>
+                  <h2>Mọi tín hiệu vận hành trong một màn hình.</h2>
+                  <p>Theo dõi danh tính, quyền truy cập và luồng thông báo trước khi đi sâu vào lịch phòng.</p>
+                </div>
+                <SquaresFour aria-hidden />
+              </section>
+              <section className="signal-grid" aria-label="Tổng quan phiên làm việc">
+                <article>
+                  <span>Danh tính</span>
+                  <strong>Đã xác minh</strong>
+                  <small><CheckCircle /> Backoffice Realm</small>
+                </article>
+                <article>
+                  <span>Vai trò</span>
+                  <strong>{profile.viewer.roles.length}</strong>
+                  <small>{profile.viewer.roles.join(', ') || 'Chưa gán vai trò'}</small>
+                </article>
+                <article>
+                  <span>Quyền hiệu lực</span>
+                  <strong>{profile.viewer.permissions.length}</strong>
+                  <small>Phiên bản {profile.viewer.authorizationVersion}</small>
+                </article>
+                <article className={`stream-signal ${inbox.status}`}>
+                  <span>Luồng thông báo</span>
+                  <strong>{streamLabels[inbox.status]}</strong>
+                  <small><WifiHigh /> GraphQL-over-SSE</small>
+                </article>
+              </section>
+            </>}
             {activePage === 'inventory' && (
               <InventoryWorkspace graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} />
             )}
