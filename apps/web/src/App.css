@@ -321,6 +321,13 @@ a { color: inherit; text-decoration: none; }
 .inventory-heading > div { max-width: 64rem; }
 .inventory-heading h2 { max-width: 64rem; margin: 10px 0 10px; font-size: clamp(2.15rem, 4.4vw, 5rem); line-height: .96; letter-spacing: -.065em; }
 .inventory-heading > div > p:last-child { max-width: 720px; margin: 0; color: var(--muted); font-size: .88rem; line-height: 1.65; }
+.inventory-heading-actions { min-width: min(100%, 470px); display: grid; grid-template-columns: minmax(250px, 1fr) auto; align-items: stretch; gap: 10px; }
+.inventory-heading-signal { min-height: 68px; padding: 9px 0 9px 13px; display: grid; grid-template-columns: repeat(3, minmax(72px, 1fr)); border: 1px solid var(--line); border-radius: 13px; background: rgba(255, 255, 255, .78); box-shadow: 0 10px 24px rgba(23, 35, 29, .035); }
+.inventory-heading-signal > div { min-width: 0; padding: 0 12px; display: grid; align-content: center; gap: 5px; border-left: 1px solid var(--line); }
+.inventory-heading-signal > div:first-child { padding-left: 0; border-left: 0; }
+.inventory-heading-signal span { color: var(--muted); font-size: .57rem; font-weight: 700; white-space: nowrap; }
+.inventory-heading-signal strong { color: var(--ink); font-size: .95rem; letter-spacing: -.03em; white-space: nowrap; }
+.inventory-heading-signal > div:first-child strong { color: #12977f; }
 .inventory-create-button { min-height: 44px; padding: 0 17px; border: 1px solid #173c2b; border-radius: 11px; background: #173c2b; color: white; display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap; font-weight: 700; box-shadow: 0 10px 28px rgba(23,60,43,.14); }
 
 .inventory-toolbar { margin-top: 34px; padding: 10px; border: 1px solid var(--line); border-radius: 17px; background: var(--card); display: grid; grid-template-columns: minmax(320px, 1.2fr) auto auto; gap: 9px; align-items: stretch; box-shadow: 0 12px 40px rgba(23,35,29,.035); }
@@ -483,6 +490,9 @@ a { color: inherit; text-decoration: none; }
   .inventory-heading { align-items: flex-start; }
   .inventory-heading h2 { font-size: 2.75rem; }
   .inventory-heading > div > p:last-child { display: none; }
+  .inventory-heading-actions { width: 100%; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; }
+  .inventory-heading-signal { min-width: 0; }
+  .inventory-heading-signal > div { padding: 0 8px; }
   .inventory-create-button { min-width: 44px; padding: 0 12px; font-size: 0; }
   .inventory-create-button svg { font-size: 1rem; }
   .inventory-toolbar { grid-template-columns: 1fr auto; }
