@@ -32,6 +32,7 @@ import {
   type DataScope,
 } from '@vistay/admin-api-client'
 import heroImage from './assets/hero.png'
+import { RolePolicyWorkspacePanel } from './RolePolicyWorkspacePanel'
 
 gsap.registerPlugin(ScrollTrigger, useGSAP)
 
@@ -341,6 +342,8 @@ export function AuthorizationConsole({ graphqlUrl, accessToken, viewer }: Author
           </button>
         </form>
       </header>
+
+      <RolePolicyWorkspacePanel graphqlUrl={graphqlUrl} accessToken={accessToken} viewer={viewer} accountType={accountType} />
 
       {loadState === 'error' && (
         <div className="authorization-alert error" role="alert">

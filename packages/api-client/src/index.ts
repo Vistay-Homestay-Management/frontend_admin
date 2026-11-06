@@ -434,6 +434,77 @@ export interface AuthorizationWorkspace {
   auditError?: string
 }
 
+export interface RolePolicyGrant {
+  permissionCode: string
+  allowedScopes: DataScope[]
+  partitionTypes: string[]
+}
+
+export interface RolePolicyRole {
+  code: string
+  displayName: string
+  description: string | null
+  accountType: AccountType
+  systemRole: boolean
+  active: boolean
+  roleVersion: number
+  grants: RolePolicyGrant[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PermissionCatalogEntry {
+  code: string
+  resource: string
+  action: string
+  description: string | null
+  active: boolean
+  deprecatedAt: string | null
+  aliases: string[]
+}
+
+export interface RolePolicyChangeRequest {
+  id: string
+  roleCode: string
+  requestedBySubjectId: string
+  reviewedBySubjectId: string | null
+  changeType: 'CREATE_ROLE' | 'CHANGE_PERMISSIONS' | 'DEACTIVATE_ROLE'
+  status: AuthorizationChangeStatus
+  expectedRoleVersion: number | null
+  reason: string
+  reviewReason: string | null
+  expiresAt: string
+  createdAt: string
+}
+
+export interface CreateRoleInput {
+  code: string
+  displayName: string
+  description?: string | null
+  accountType: AccountType
+  grants: RolePolicyGrant[]
+  reason: string
+  idempotencyKey: string
+}
+
+export interface RolePermissionChangeInput {
+  roleCode: string
+  accountType: AccountType
+  addGrants: RolePolicyGrant[]
+  removePermissionCodes: string[]
+  expectedRoleVersion: number
+  reason: string
+  idempotencyKey: string
+}
+
+export interface DeactivateRoleInput {
+  roleCode: string
+  accountType: AccountType
+  expectedRoleVersion: number
+  reason: string
+  idempotencyKey: string
+}
+
 export type InventoryBlockType = 'BOOKING' | 'MAINTENANCE' | 'CLEANING' | 'OWNER_USE' | 'MANUAL' | 'CHANNEL'
 export type OperatorInventoryBlockType = 'MAINTENANCE' | 'CLEANING' | 'OWNER_USE' | 'MANUAL'
 export type InventoryBlockStatus = 'TENTATIVE' | 'ACTIVE' | 'RELEASED' | 'CANCELLED'
@@ -1210,6 +1281,60 @@ const AUTHORIZATION_WORKSPACE_QUERY = `
   }
 `
 
+const ROLE_POLICY_WORKSPACE_QUERY = `
+  query RolePolicyWorkspace($accountType: AccountType!) {
+    roleCatalog(accountType: $accountType) {
+      code displayName description accountType systemRole active roleVersion createdAt updatedAt
+      grants { permissionCode allowedScopes partitionTypes }
+    }
+    permissionCatalog { code resource action description active deprecatedAt aliases }
+    rolePolicyChangeRequests(status: PENDING) {
+      id roleCode requestedBySubjectId reviewedBySubjectId changeType status
+      expectedRoleVersion reason reviewReason expiresAt createdAt
+    }
+  }
+`
+
+const REQUEST_CREATE_ROLE_MUTATION = `
+  mutation RequestCreateRole($input: CreateRoleInput!) {
+    requestCreateRole(input: $input) {
+      id roleCode requestedBySubjectId reviewedBySubjectId changeType status
+      expectedRoleVersion reason reviewReason expiresAt createdAt
+    }
+  }
+`
+
+const REQUEST_ROLE_PERMISSION_CHANGE_MUTATION = `
+  mutation RequestRolePermissionChange($input: RolePermissionChangeInput!) {
+    requestRolePermissionChange(input: $input) {
+      id roleCode requestedBySubjectId reviewedBySubjectId changeType status
+      expectedRoleVersion reason reviewReason expiresAt createdAt
+    }
+  }
+`
+
+const REQUEST_DEACTIVATE_ROLE_MUTATION = `
+  mutation RequestDeactivateRole($input: DeactivateRoleInput!) {
+    requestDeactivateRole(input: $input) {
+      id roleCode requestedBySubjectId reviewedBySubjectId changeType status
+      expectedRoleVersion reason reviewReason expiresAt createdAt
+    }
+  }
+`
+
+const REVIEW_ROLE_POLICY_CHANGE_MUTATION = `
+  mutation ReviewRolePolicyChange($id: ID!, $reason: String!, $approve: Boolean!) {
+    approve: approveRolePolicyChange(id: $id, reason: $reason) @include(if: $approve) {
+      id roleCode requestedBySubjectId reviewedBySubjectId changeType status
+      expectedRoleVersion reason reviewReason expiresAt createdAt
+    }
+    reject: rejectRolePolicyChange(id: $id, reason: $reason) @skip(if: $approve) {
+      id roleCode requestedBySubjectId reviewedBySubjectId changeType status
+      expectedRoleVersion reason reviewReason expiresAt createdAt
+    }
+  }
+`
+
 const AUTHORIZATION_AUDIT_QUERY = `
   query AuthorizationAudit($targetSubjectId: ID) {
     authorizationAudit(targetSubjectId: $targetSubjectId) {
@@ -1324,6 +1449,83 @@ export async function fetchAuthorizationWorkspace(
     audit,
     auditError,
   }
+}
+
+export async function fetchRolePolicyWorkspace(
+  graphqlUrl: string,
+  accessToken: string,
+  accountType: AccountType,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<{
+  roles: RolePolicyRole[]
+  permissions: PermissionCatalogEntry[]
+  pendingRequests: RolePolicyChangeRequest[]
+}> {
+  const data = await graphqlRequest<{
+    roleCatalog: RolePolicyRole[]
+    permissionCatalog: PermissionCatalogEntry[]
+    rolePolicyChangeRequests: RolePolicyChangeRequest[]
+  }>(graphqlUrl, accessToken, 'RolePolicyWorkspace', ROLE_POLICY_WORKSPACE_QUERY,
+    { accountType }, undefined, fetcher)
+  return {
+    roles: data.roleCatalog,
+    permissions: data.permissionCatalog,
+    pendingRequests: data.rolePolicyChangeRequests,
+  }
+}
+
+export async function requestCreateRole(
+  graphqlUrl: string,
+  accessToken: string,
+  input: CreateRoleInput,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<RolePolicyChangeRequest> {
+  const data = await graphqlRequest<{ requestCreateRole: RolePolicyChangeRequest }>(
+    graphqlUrl, accessToken, 'RequestCreateRole', REQUEST_CREATE_ROLE_MUTATION,
+    { input }, undefined, fetcher)
+  return data.requestCreateRole
+}
+
+export async function requestRolePermissionChange(
+  graphqlUrl: string,
+  accessToken: string,
+  input: RolePermissionChangeInput,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<RolePolicyChangeRequest> {
+  const data = await graphqlRequest<{ requestRolePermissionChange: RolePolicyChangeRequest }>(
+    graphqlUrl, accessToken, 'RequestRolePermissionChange', REQUEST_ROLE_PERMISSION_CHANGE_MUTATION,
+    { input }, undefined, fetcher)
+  return data.requestRolePermissionChange
+}
+
+export async function requestDeactivateRole(
+  graphqlUrl: string,
+  accessToken: string,
+  input: DeactivateRoleInput,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<RolePolicyChangeRequest> {
+  const data = await graphqlRequest<{ requestDeactivateRole: RolePolicyChangeRequest }>(
+    graphqlUrl, accessToken, 'RequestDeactivateRole', REQUEST_DEACTIVATE_ROLE_MUTATION,
+    { input }, undefined, fetcher)
+  return data.requestDeactivateRole
+}
+
+export async function reviewRolePolicyChange(
+  graphqlUrl: string,
+  accessToken: string,
+  id: string,
+  reason: string,
+  approve: boolean,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<RolePolicyChangeRequest> {
+  const data = await graphqlRequest<{
+    approve: RolePolicyChangeRequest | null
+    reject: RolePolicyChangeRequest | null
+  }>(graphqlUrl, accessToken, 'ReviewRolePolicyChange', REVIEW_ROLE_POLICY_CHANGE_MUTATION,
+    { id, reason, approve }, undefined, fetcher)
+  const result = data.approve ?? data.reject
+  if (!result) throw new Error('Role policy review returned no result')
+  return result
 }
 
 export async function requestAuthorizationChange(
@@ -1785,4 +1987,139 @@ export function prependNotification(
     return updated
   }
   return [incoming, ...notifications].slice(0, limit)
+}
+
+export interface DynamicConfigurationWorkspace {
+  loyaltyPrograms: Array<{ id: string; code: string; name: string; rowVersion: string; versions: Array<{ version: number; status: string; qualificationWindow: string; rollingWindowDays?: number; effectiveFrom: string; effectiveTo?: string; tiers: Array<{ code: string; displayName: string; minimumPoints: string; displayOrder: number }> }> }>
+  loyaltyRequests: Array<{ id: string; programCode: string; status: string; reason: string; requestedBySubjectId: string; createdAt: string }>
+  propertyAttributes: Array<{ id: string; code: string; label: string; description?: string; groupCode: string; dataType: string; status: string; visibility: string; rowVersion: string; version: number; requiredOnPublish: boolean; filterable: boolean; displayOrder: number; unitLabel?: string }>
+  bookingPolicies: Array<{ id: string; code: string; name: string; policyType: string; status: string; version: number; rowVersion: string; effectiveFrom: string; effectiveTo?: string; holdMinutes: number; minimumNoticeHours: number; maximumAdvanceDays: number; minimumStayNights: number; maximumStayNights?: number; minimumGuestAge: number; securityDepositAmount: string; currency: string }>
+  bookingRequests: Array<{ id: string; policyCode: string; status: string; reason: string; requestedByAccountId: string }>
+}
+
+const DYNAMIC_CONFIGURATION_WORKSPACE_QUERY = `
+  query DynamicConfigurationWorkspace {
+    loyaltyPrograms { id code name rowVersion versions { version status qualificationWindow rollingWindowDays effectiveFrom effectiveTo tiers { code displayName minimumPoints displayOrder } } }
+    loyaltyRequests: loyaltyProgramChangeRequests(status: "PENDING") { id programCode status reason requestedBySubjectId createdAt }
+    propertyAttributes: propertyAttributeCatalog(includeDrafts: true) { id code label description groupCode dataType status visibility rowVersion version requiredOnPublish filterable displayOrder unitLabel }
+    bookingPolicies: bookingPolicyCatalog(includeDrafts: true) { id code name policyType status version rowVersion effectiveFrom effectiveTo holdMinutes minimumNoticeHours maximumAdvanceDays minimumStayNights maximumStayNights minimumGuestAge securityDepositAmount currency }
+    bookingRequests: bookingPolicyChangeRequests(status: "PENDING") { id policyCode status reason requestedByAccountId }
+  }
+`
+
+export async function fetchDynamicConfigurationWorkspace(
+  graphqlUrl: string,
+  accessToken: string,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<DynamicConfigurationWorkspace> {
+  return graphqlRequest<DynamicConfigurationWorkspace>(graphqlUrl, accessToken,
+    'DynamicConfigurationWorkspace', DYNAMIC_CONFIGURATION_WORKSPACE_QUERY, {}, undefined, fetcher)
+}
+
+export interface LoyaltyTierInput { code: string; displayName: string; minimumPoints: string; displayOrder: number }
+export interface LoyaltyEarningRuleInput { code: string; ruleType: string; points: string; amountBlock?: string; priority: number }
+export interface LoyaltyProgramChangeInput {
+  code: string; name: string; scopeType: string; scopeId?: string; qualificationWindow: string
+  rollingWindowDays?: number; effectiveFrom: string; effectiveTo?: string; expectedVersion?: string
+  tiers: LoyaltyTierInput[]; earningRules: LoyaltyEarningRuleInput[]; reason: string; idempotencyKey: string
+}
+export interface PropertyAttributeDraftInput {
+  code: string; label: string; description?: string; groupCode: string; dataType: string
+  validation?: { minimum?: string; maximum?: string; minLength?: number; maxLength?: number; pattern?: string }
+  applicability?: { propertyTypes?: string[]; operatingModels?: string[] }; visibility: string
+  requiredOnPublish: boolean; filterable: boolean; displayOrder: number; unitLabel?: string
+  options?: Array<{ code: string; label: string; displayOrder: number }>; reason: string; idempotencyKey: string
+}
+export interface BookingPolicyChangeInput {
+  code: string; name: string; policyType: string; effectiveFrom: string; effectiveTo?: string
+  holdMinutes: number; minimumNoticeHours: number; maximumAdvanceDays: number; minimumStayNights: number
+  maximumStayNights?: number; minimumGuestAge: number; securityDepositAmount: string; currency: string
+  allowedStayTypes: string[]; allowedChannels: string[]
+  cancellationRules?: { refundableUntilHours?: number; lateCancellationChargePercent?: number; noShowChargePercent?: number }
+  guestRules?: { petsAllowed?: boolean; smokingAllowed?: boolean; partiesAllowed?: boolean; quietHoursStart?: string; quietHoursEnd?: string }
+  bindings: Array<{ scopeType: string; scopeId?: string; priority: number }>
+  expectedPolicyVersion: string; reason: string; idempotencyKey: string
+}
+
+export async function requestLoyaltyConfiguration(graphqlUrl: string, accessToken: string,
+  input: LoyaltyProgramChangeInput, fetcher: typeof globalThis.fetch = globalThis.fetch): Promise<void> {
+  const query = `mutation RequestLoyaltyConfiguration($input: LoyaltyProgramChangeInput!) { requestLoyaltyProgramChange(input: $input) { id status } }`
+  await graphqlRequest(graphqlUrl, accessToken, 'RequestLoyaltyConfiguration', query, { input }, undefined, fetcher)
+}
+
+export async function reviewLoyaltyConfiguration(graphqlUrl: string, accessToken: string,
+  id: string, reason: string, approve: boolean, fetcher: typeof globalThis.fetch = globalThis.fetch): Promise<void> {
+  const operation = approve ? 'approveLoyaltyProgramChange' : 'rejectLoyaltyProgramChange'
+  const query = `mutation ReviewLoyaltyConfiguration($id: ID!, $reason: String!) { ${operation}(id: $id, reason: $reason) { id status } }`
+  await graphqlRequest(graphqlUrl, accessToken, 'ReviewLoyaltyConfiguration', query, { id, reason }, undefined, fetcher)
+}
+
+export async function adjustLoyaltyPoints(graphqlUrl: string, accessToken: string,
+  input: { customerAccountId: string; delta: string; reason: string; idempotencyKey: string },
+  fetcher: typeof globalThis.fetch = globalThis.fetch): Promise<void> {
+  const query = `mutation AdjustLoyaltyPoints($input: QualifyingPointAdjustmentInput!) { adjustQualifyingPoints(input: $input) { status qualifyingPoints currentTier { displayName } } }`
+  await graphqlRequest(graphqlUrl, accessToken, 'AdjustLoyaltyPoints', query, { input }, undefined, fetcher)
+}
+
+export async function createPropertyAttributeConfiguration(graphqlUrl: string, accessToken: string,
+  input: PropertyAttributeDraftInput, fetcher: typeof globalThis.fetch = globalThis.fetch): Promise<void> {
+  const query = `mutation CreatePropertyAttributeConfiguration($input: PropertyAttributeDraftInput!) { createPropertyAttributeDraft(input: $input) { id status rowVersion } }`
+  await graphqlRequest(graphqlUrl, accessToken, 'CreatePropertyAttributeConfiguration', query, { input }, undefined, fetcher)
+}
+
+export async function changePropertyAttributeStatus(graphqlUrl: string, accessToken: string,
+  definitionId: string, expectedRowVersion: string, reason: string, publish: boolean,
+  fetcher: typeof globalThis.fetch = globalThis.fetch): Promise<void> {
+  const operation = publish ? 'publishPropertyAttribute' : 'retirePropertyAttribute'
+  const query = `mutation ChangePropertyAttributeStatus($definitionId: ID!, $expectedRowVersion: String!, $reason: String!) { ${operation}(definitionId: $definitionId, expectedRowVersion: $expectedRowVersion, reason: $reason) { id status rowVersion } }`
+  await graphqlRequest(graphqlUrl, accessToken, 'ChangePropertyAttributeStatus', query,
+    { definitionId, expectedRowVersion, reason }, undefined, fetcher)
+}
+
+export async function requestBookingConfiguration(graphqlUrl: string, accessToken: string,
+  input: BookingPolicyChangeInput, fetcher: typeof globalThis.fetch = globalThis.fetch): Promise<void> {
+  const query = `mutation RequestBookingConfiguration($input: BookingPolicyChangeInput!) { requestBookingPolicyChange(input: $input) { id status } }`
+  await graphqlRequest(graphqlUrl, accessToken, 'RequestBookingConfiguration', query, { input }, undefined, fetcher)
+}
+
+export interface BookingPolicySimulation { id: string; allowed: boolean; reasons: string[]; policy: { code: string; version: number; scopeType: string } }
+export async function simulateBookingConfiguration(graphqlUrl: string, accessToken: string,
+  input: { policyType: string; organizationId?: string; branchId?: string; propertyId?: string; at: string; stayNights: number; noticeHours: number; advanceDays: number },
+  fetcher: typeof globalThis.fetch = globalThis.fetch): Promise<BookingPolicySimulation> {
+  const query = `mutation SimulateBookingConfiguration($input: BookingPolicySimulationInput!) { simulateBookingPolicy(input: $input) { id allowed reasons policy { code version scopeType } } }`
+  const data = await graphqlRequest<{ simulateBookingPolicy: BookingPolicySimulation }>(graphqlUrl, accessToken,
+    'SimulateBookingConfiguration', query, { input }, undefined, fetcher)
+  return data.simulateBookingPolicy
+}
+
+export interface OperationsAnalytics {
+  from: string; to: string; generatedAt: string; totalBookings: number; confirmedBookings: number
+  cancelledBookings: number; guests: number; activeProperties: number; occupiedNights: number
+  occupancyRate: string; cancellationRate: string
+  money: Array<{ currency: string; revenue: string; averageBookingValue: string }>
+  series: Array<{ day: string; bookings: number; revenue: string; guests: number }>
+  channels: Array<{ code: string; bookings: number; revenue: string }>
+  statuses: Array<{ code: string; bookings: number; revenue: string }>
+}
+
+export async function fetchOperationsAnalytics(graphqlUrl: string, accessToken: string,
+  input: { from: string; to: string }, fetcher: typeof globalThis.fetch = globalThis.fetch): Promise<OperationsAnalytics> {
+  const query = `query OperationsAnalytics($input: AnalyticsRangeInput!) { operationsAnalytics(input: $input) { from to generatedAt totalBookings confirmedBookings cancelledBookings guests activeProperties occupiedNights occupancyRate cancellationRate money { currency revenue averageBookingValue } series { day bookings revenue guests } channels { code bookings revenue } statuses { code bookings revenue } } }`
+  const data = await graphqlRequest<{ operationsAnalytics: OperationsAnalytics }>(graphqlUrl, accessToken,
+    'OperationsAnalytics', query, { input }, undefined, fetcher)
+  return data.operationsAnalytics
+}
+
+export async function reviewBookingConfiguration(
+  graphqlUrl: string,
+  accessToken: string,
+  id: string,
+  reason: string,
+  approve: boolean,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<void> {
+  const operation = approve ? 'approveBookingPolicyChange' : 'rejectBookingPolicyChange'
+  const query = `mutation ReviewBookingConfiguration($id: ID!, $reason: String!) { ${operation}(id: $id, reason: $reason) { id status } }`
+  await graphqlRequest<Record<string, { id: string; status: string }>>(graphqlUrl, accessToken,
+    'ReviewBookingConfiguration', query, { id, reason }, undefined, fetcher)
 }
