@@ -114,6 +114,12 @@ export function AuthorizationWorkspace({ graphqlUrl, accessToken, viewer }: {
     [selectedRoleCode, workspace?.catalog],
   )
 
+  function selectRole(role: AuthorizationRole | undefined) {
+    setSelectedRoleCode(role?.code)
+    setScopeOverrides(Object.fromEntries(role?.policies.map((policy) => [policy.permissionCode, policy.defaultScopes]) ?? []))
+    setMutationMessage(undefined)
+  }
+
   async function load(type = accountType, id = accountId) {
     if (!canRead || !id.trim()) return
     setLoading(true)
@@ -168,12 +174,6 @@ export function AuthorizationWorkspace({ graphqlUrl, accessToken, viewer }: {
       .catch((error: unknown) => { if (active) setLoadError(messageOf(error)) })
     return () => { active = false }
   }, [accessToken, accountType, canReadRoles, graphqlUrl])
-
-  function selectRole(role: AuthorizationRole | undefined) {
-    setSelectedRoleCode(role?.code)
-    setScopeOverrides(Object.fromEntries(role?.policies.map((policy) => [policy.permissionCode, policy.defaultScopes]) ?? []))
-    setMutationMessage(undefined)
-  }
 
   function toggleScope(permissionCode: string, scope: DataScope, retained = false) {
     const setter = retained ? setRetainedScopes : setScopeOverrides
