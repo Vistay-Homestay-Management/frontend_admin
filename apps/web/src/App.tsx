@@ -3,6 +3,7 @@ import {
   Bell,
   Buildings,
   CalendarDots,
+  ChartBar,
   CheckCircle,
   FileText,
   Key,
@@ -29,6 +30,8 @@ import { OverviewDashboard } from './OverviewDashboard'
 import { NotificationInbox } from './NotificationInbox'
 import { NotificationPreferences } from './NotificationPreferences'
 import { NotificationTemplateWorkspace } from './NotificationTemplateWorkspace'
+import { DynamicConfigurationWorkspace } from './DynamicConfigurationWorkspace'
+import { AnalyticsDashboard } from './AnalyticsDashboard'
 import type { RuntimeConfig } from './lib/config'
 import { useNotificationInbox, useViewer, type StreamStatus } from './lib/useBackofficeData'
 
@@ -93,16 +96,18 @@ function initials(name: string): string {
   return name.split(/\s+/).filter(Boolean).slice(-2).map((part) => part[0]).join('').toUpperCase()
 }
 
-type AdminPage = 'overview' | 'inventory' | 'management' | 'profile' | 'notifications' | 'accounts' | 'authorization' | 'templates' | 'preferences'
+type AdminPage = 'overview' | 'analytics' | 'inventory' | 'management' | 'profile' | 'notifications' | 'accounts' | 'authorization' | 'configuration' | 'templates' | 'preferences'
 
 const pageTitles: Record<AdminPage, { eyebrow: string; title: string }> = {
   overview: { eyebrow: 'THÔNG TIN CHUNG', title: 'Toàn cảnh vận hành' },
+  analytics: { eyebrow: 'ANALYTICS CONTROL ROOM', title: 'Thống kê chuyên sâu' },
   inventory: { eyebrow: 'TRUNG TÂM VẬN HÀNH', title: 'Tồn phòng & sơ đồ căn' },
   management: { eyebrow: 'PROPERTY MASTER / UNIT CATALOG', title: 'Quản lý tòa và căn' },
   profile: { eyebrow: 'HỒ SƠ CÁ NHÂN', title: 'Phiên làm việc của bạn' },
   notifications: { eyebrow: 'DURABLE INBOX', title: 'Thông báo vận hành' },
   accounts: { eyebrow: 'QUẢN TRỊ DANH TÍNH', title: 'Tài khoản Backoffice' },
   authorization: { eyebrow: 'KIỂM SOÁT TRUY CẬP', title: 'Phân quyền ba lớp' },
+  configuration: { eyebrow: 'POLICY CONTROL PLANE', title: 'Cấu hình nghiệp vụ động' },
   templates: { eyebrow: 'TEMPLATE CONTROL PLANE', title: 'Template thông báo' },
   preferences: { eyebrow: 'CHANNEL POLICY', title: 'Kênh nhận thông báo' },
 }
@@ -134,12 +139,14 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
         <a className="rail-mark" href="#overview" aria-label="ViStay" title="ViStay"><span className="rail-symbol">V</span><strong>ViStay</strong><small>Admin workspace</small></a>
         <nav aria-label="Điều hướng chính">
           <a className={activePage === 'overview' ? 'active' : ''} href="#overview" aria-label="Thông tin chung" title="Thông tin chung"><SquaresFour /><span>Thông tin chung</span></a>
+          <a className={activePage === 'analytics' ? 'active' : ''} href="#analytics" aria-label="Thống kê" title="Thống kê"><ChartBar /><span>Thống kê</span></a>
           <a className={activePage === 'inventory' ? 'active' : ''} href="#inventory" aria-label="Sơ đồ phòng" title="Sơ đồ phòng"><CalendarDots /><span>Sơ đồ phòng</span></a>
           <a className={activePage === 'management' ? 'active' : ''} href="#management" aria-label="Quản lý tòa" title="Quản lý tòa"><Buildings /><span>Quản lý tòa</span></a>
           <a className={activePage === 'profile' ? 'active' : ''} href="#profile" aria-label="Hồ sơ của tôi" title="Hồ sơ của tôi"><UserCircle /><span>Hồ sơ của tôi</span></a>
           <a className={activePage === 'notifications' ? 'active' : ''} href="#notifications" aria-label="Thông báo" title="Thông báo"><Bell /><span>Thông báo</span>{inbox.unreadCount > 0 && <i>{inbox.unreadCount}</i>}</a>
           <a className={activePage === 'accounts' ? 'active' : ''} href="#accounts" aria-label="Tài khoản" title="Tài khoản"><Key /><span>Tài khoản</span></a>
           <a className={activePage === 'authorization' ? 'active' : ''} href="#authorization" aria-label="Phân quyền" title="Phân quyền"><ShieldCheck /><span>Phân quyền</span></a>
+          <a className={activePage === 'configuration' ? 'active' : ''} href="#configuration" aria-label="Cấu hình động" title="Cấu hình động"><SlidersHorizontal /><span>Cấu hình động</span></a>
           <a className={activePage === 'templates' ? 'active' : ''} href="#templates" aria-label="Template" title="Template"><FileText /><span>Template</span></a>
           <a className={activePage === 'preferences' ? 'active' : ''} href="#preferences" aria-label="Kênh nhận" title="Kênh nhận"><SlidersHorizontal /><span>Kênh nhận</span></a>
         </nav>
@@ -169,7 +176,8 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
 
         {profile.viewer && (
           <>
-            {activePage === 'overview' && <OverviewDashboard />}
+            {activePage === 'overview' && <OverviewDashboard graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} />}
+            {activePage === 'analytics' && <AnalyticsDashboard graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} />}
             {activePage === 'inventory' && (
               <InventoryWorkspace graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} />
             )}
@@ -233,6 +241,7 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
               accessToken={accessToken}
               viewer={profile.viewer}
             />}
+            {activePage === 'configuration' && <DynamicConfigurationWorkspace graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} />}
             {activePage === 'templates' && <NotificationTemplateWorkspace graphqlUrl={config.graphqlUrl} accessToken={accessToken} />}
             {activePage === 'preferences' && <NotificationPreferences graphqlUrl={config.graphqlUrl} accessToken={accessToken} />}
           </>

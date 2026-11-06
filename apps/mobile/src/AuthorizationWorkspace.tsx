@@ -13,10 +13,12 @@ import {
   approveAuthorizationChange,
   fetchAuthorizationSubject,
   fetchAuthorizationWorkspace,
+  fetchRolePolicyWorkspace,
   reduceAuthorizationScopes,
   rejectAuthorizationChange,
   requestAuthorizationChange,
   revokeRoleAssignment,
+  reviewRolePolicyChange,
   type AccountType,
   type AuthorizationAssignment,
   type AuthorizationChangeRequest,
@@ -24,6 +26,8 @@ import {
   type AuthorizationWorkspace as Workspace,
   type BackofficeViewer,
   type DataScope,
+  type RolePolicyChangeRequest,
+  type RolePolicyRole,
 } from '@vistay/admin-api-client'
 
 const mobileFetch = expoFetch as typeof globalThis.fetch
@@ -96,11 +100,15 @@ export function AuthorizationWorkspace({ graphqlUrl, accessToken, viewer }: {
   const [editing, setEditing] = useState<AuthorizationAssignment>()
   const [retainedScopes, setRetainedScopes] = useState<Record<string, DataScope[]>>({})
   const [reductionReason, setReductionReason] = useState('')
+  const [policyRoles, setPolicyRoles] = useState<RolePolicyRole[]>([])
+  const [policyQueue, setPolicyQueue] = useState<RolePolicyChangeRequest[]>([])
 
   const canRead = hasPermission(viewer, 'authorization:read')
   const canGrant = hasPermission(viewer, 'authorization:grant')
   const canApprove = hasPermission(viewer, 'authorization:approve')
   const canRevoke = hasPermission(viewer, 'authorization:revoke')
+  const canReadRoles = hasPermission(viewer, 'role:read')
+  const canApproveRoles = hasPermission(viewer, 'role:change-approve')
   const selectedRole = useMemo(
     () => workspace?.catalog.find((role) => role.code === selectedRoleCode),
     [selectedRoleCode, workspace?.catalog],
@@ -151,6 +159,15 @@ export function AuthorizationWorkspace({ graphqlUrl, accessToken, viewer }: {
     })
     return () => { active = false }
   }, [accessToken, canRead, graphqlUrl, viewer.accountId])
+
+  useEffect(() => {
+    if (!canReadRoles) return
+    let active = true
+    void fetchRolePolicyWorkspace(graphqlUrl, accessToken, accountType, mobileFetch)
+      .then((data) => { if (active) { setPolicyRoles(data.roles); setPolicyQueue(data.pendingRequests) } })
+      .catch((error: unknown) => { if (active) setLoadError(messageOf(error)) })
+    return () => { active = false }
+  }, [accessToken, accountType, canReadRoles, graphqlUrl])
 
   function selectRole(role: AuthorizationRole | undefined) {
     setSelectedRoleCode(role?.code)
@@ -295,6 +312,35 @@ export function AuthorizationWorkspace({ graphqlUrl, accessToken, viewer }: {
           {loading ? <ActivityIndicator color="white" /> : <Text style={styles.primaryText}>Tra cứu phân quyền</Text>}
         </Pressable>
       </View>
+
+      {canReadRoles && (
+        <View style={styles.card}>
+          <Text style={styles.eyebrow}>ROLE POLICY V2</Text>
+          <Text style={styles.cardTitle}>Catalog và checker queue</Text>
+          <Text style={styles.body}>Policy theo role, version hóa và không cho requester tự phê duyệt.</Text>
+          {policyRoles.map((role) => (
+            <View key={role.code} style={styles.assignmentRow}>
+              <View><Text style={styles.policyName}>{role.code}</Text><Text style={styles.body}>v{role.roleVersion} · {role.grants.length} permissions{role.systemRole ? ' · system' : ''}</Text></View>
+            </View>
+          ))}
+          <Text style={styles.cardTitle}>Đang chờ ({policyQueue.length})</Text>
+          {policyQueue.map((request) => (
+            <View key={request.id} style={styles.assignmentRow}>
+              <View><Text style={styles.policyName}>{request.roleCode}</Text><Text style={styles.body}>{request.changeType} · {request.reason}</Text></View>
+              {canApproveRoles && <View style={styles.accountTypes}>
+                <Choice active={false} label="Duyệt" onPress={() => void mutate(
+                  () => reviewRolePolicyChange(graphqlUrl, accessToken, request.id, 'Approved after independent mobile review', true, mobileFetch),
+                  'Đã phê duyệt role policy.',
+                )} />
+                <Choice active={false} label="Từ chối" onPress={() => void mutate(
+                  () => reviewRolePolicyChange(graphqlUrl, accessToken, request.id, 'Rejected after independent mobile review', false, mobileFetch),
+                  'Đã từ chối role policy.',
+                )} />
+              </View>}
+            </View>
+          ))}
+        </View>
+      )}
 
       {loadError && <Text accessibilityRole="alert" style={styles.error}>{loadError}</Text>}
       {mutationMessage && <Text accessibilityRole="alert" style={mutationState === 'error' ? styles.error : styles.success}>{mutationMessage}</Text>}
@@ -489,6 +535,7 @@ const styles = StyleSheet.create({
   darkCard: { borderColor: '#17231d', backgroundColor: '#17231d' },
   darkMuted: { color: '#9caaa2', fontSize: 9 },
   assignment: { paddingVertical: 14, borderTopWidth: 1, borderTopColor: '#35443b', flexDirection: 'row', alignItems: 'center', gap: 9 },
+  assignmentRow: { paddingVertical: 13, borderTopWidth: 1, borderTopColor: '#e6e6df', gap: 8 },
   assignmentTitle: { color: 'white', fontSize: 13, fontWeight: '700' },
   flex: { flex: 1 },
   darkButton: { padding: 9, borderWidth: 1, borderColor: '#506158', borderRadius: 9 },
