@@ -112,9 +112,23 @@ const pageTitles: Record<AdminPage, { eyebrow: string; title: string }> = {
   preferences: { eyebrow: 'CHANNEL POLICY', title: 'Kênh nhận thông báo' },
 }
 
+const navigationItems = [
+  { page: 'overview', label: 'Chung', icon: SquaresFour },
+  { page: 'inventory', label: 'Booking', icon: CalendarDots },
+  { page: 'management', label: 'Căn hộ', icon: Buildings },
+  { page: 'analytics', label: 'Thống kê', icon: ChartBar },
+  { page: 'profile', label: 'Hồ sơ của tôi', icon: UserCircle },
+  { page: 'notifications', label: 'Thông báo', icon: Bell },
+  { page: 'accounts', label: 'Tài khoản', icon: Key },
+  { page: 'authorization', label: 'Phân quyền', icon: ShieldCheck },
+  { page: 'configuration', label: 'Cấu hình động', icon: SlidersHorizontal },
+  { page: 'templates', label: 'Template', icon: FileText },
+  { page: 'preferences', label: 'Kênh nhận', icon: SlidersHorizontal },
+] as const
+
 function pageFromHash(): AdminPage {
   const page = window.location.hash.replace(/^#/, '').split('?')[0] as AdminPage
-  return page in pageTitles ? page : 'inventory'
+  return page in pageTitles ? page : 'overview'
 }
 
 function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: string }) {
@@ -127,7 +141,7 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
   useEffect(() => {
     const syncPage = () => setActivePage(pageFromHash())
     window.addEventListener('hashchange', syncPage)
-    if (!window.location.hash) window.history.replaceState(null, '', '#inventory')
+    if (!window.location.hash) window.history.replaceState(null, '', '#overview')
     return () => window.removeEventListener('hashchange', syncPage)
   }, [])
 
@@ -136,19 +150,33 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
   return (
     <main className="admin-shell">
       <aside className="rail">
-        <a className="rail-mark" href="#overview" aria-label="ViStay" title="ViStay"><span className="rail-symbol">V</span><strong>ViStay</strong><small>Admin workspace</small></a>
+        <a className="rail-mark" href="#overview" aria-label="ViStay" title="ViStay">
+          <span className="rail-symbol" aria-hidden="true">
+            <svg viewBox="0 0 36 36" role="presentation">
+              <path d="M7.5 9.5 18 28 28.5 9.5" />
+              <path d="m12.5 9.5 5.5 10 5.5-10" />
+            </svg>
+          </span>
+          <strong>ViStay</strong><small>Admin workspace</small>
+        </a>
         <nav aria-label="Điều hướng chính">
-          <a className={activePage === 'overview' ? 'active' : ''} href="#overview" aria-label="Thông tin chung" title="Thông tin chung"><SquaresFour /><span>Thông tin chung</span></a>
-          <a className={activePage === 'analytics' ? 'active' : ''} href="#analytics" aria-label="Thống kê" title="Thống kê"><ChartBar /><span>Thống kê</span></a>
-          <a className={activePage === 'inventory' ? 'active' : ''} href="#inventory" aria-label="Sơ đồ phòng" title="Sơ đồ phòng"><CalendarDots /><span>Sơ đồ phòng</span></a>
-          <a className={activePage === 'management' ? 'active' : ''} href="#management" aria-label="Quản lý tòa" title="Quản lý tòa"><Buildings /><span>Quản lý tòa</span></a>
-          <a className={activePage === 'profile' ? 'active' : ''} href="#profile" aria-label="Hồ sơ của tôi" title="Hồ sơ của tôi"><UserCircle /><span>Hồ sơ của tôi</span></a>
-          <a className={activePage === 'notifications' ? 'active' : ''} href="#notifications" aria-label="Thông báo" title="Thông báo"><Bell /><span>Thông báo</span>{inbox.unreadCount > 0 && <i>{inbox.unreadCount}</i>}</a>
-          <a className={activePage === 'accounts' ? 'active' : ''} href="#accounts" aria-label="Tài khoản" title="Tài khoản"><Key /><span>Tài khoản</span></a>
-          <a className={activePage === 'authorization' ? 'active' : ''} href="#authorization" aria-label="Phân quyền" title="Phân quyền"><ShieldCheck /><span>Phân quyền</span></a>
-          <a className={activePage === 'configuration' ? 'active' : ''} href="#configuration" aria-label="Cấu hình động" title="Cấu hình động"><SlidersHorizontal /><span>Cấu hình động</span></a>
-          <a className={activePage === 'templates' ? 'active' : ''} href="#templates" aria-label="Template" title="Template"><FileText /><span>Template</span></a>
-          <a className={activePage === 'preferences' ? 'active' : ''} href="#preferences" aria-label="Kênh nhận" title="Kênh nhận"><SlidersHorizontal /><span>Kênh nhận</span></a>
+          {navigationItems.map(({ page, label, icon: Icon }) => {
+            const active = activePage === page
+            return (
+              <a
+                key={page}
+                className={active ? 'active' : ''}
+                href={`#${page}`}
+                aria-label={label}
+                aria-current={active ? 'page' : undefined}
+                title={label}
+              >
+                <Icon weight={active ? 'bold' : 'regular'} />
+                <span>{label}</span>
+                {page === 'notifications' && inbox.unreadCount > 0 && <i>{inbox.unreadCount}</i>}
+              </a>
+            )
+          })}
         </nav>
         <div className="rail-account"><button className="rail-avatar" title={displayName}>{initials(displayName)}</button><span><strong>{displayName}</strong><small>{profile.viewer?.roles[0] ?? 'Backoffice'}</small></span></div>
       </aside>
