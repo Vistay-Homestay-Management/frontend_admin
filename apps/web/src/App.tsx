@@ -165,16 +165,6 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
           </span>
           <span className="rail-wordmark">Vistay</span>
         </a>
-        <button
-          type="button"
-          className="rail-toggle"
-          onClick={toggleRail}
-          aria-label={railExpanded ? 'Thu gọn thanh điều hướng' : 'Mở rộng thanh điều hướng'}
-          aria-expanded={railExpanded}
-          title={railExpanded ? 'Thu gọn' : 'Mở rộng'}
-        >
-          <CaretDoubleRight weight="bold" />
-        </button>
         <nav aria-label="Điều hướng chính">
           {navigationItems.map(({ page, label, icon: Icon }) => {
             const active = activePage === page
@@ -187,13 +177,25 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
                 aria-current={active ? 'page' : undefined}
                 title={label}
               >
-                <Icon weight={active ? 'bold' : 'regular'} />
-                <span>{label}</span>
-                {page === 'notifications' && inbox.unreadCount > 0 && <i>{inbox.unreadCount}</i>}
+                <span className="rail-option-tile">
+                  <Icon weight={active ? 'bold' : 'regular'} />
+                  {page === 'notifications' && inbox.unreadCount > 0 && <i>{inbox.unreadCount}</i>}
+                </span>
+                <span className="rail-option-label">{label}</span>
               </a>
             )
           })}
         </nav>
+        <button
+          type="button"
+          className="rail-toggle"
+          onClick={toggleRail}
+          aria-label={railExpanded ? 'Thu gọn thanh điều hướng' : 'Mở rộng thanh điều hướng'}
+          aria-expanded={railExpanded}
+          title={railExpanded ? 'Thu gọn' : 'Mở rộng'}
+        >
+          <CaretDoubleRight weight="bold" />
+        </button>
         <div className="rail-account"><button className="rail-avatar" title={displayName}>{initials(displayName)}</button><span><strong>{displayName}</strong><small>{profile.viewer?.roles[0] ?? 'Backoffice'}</small></span></div>
       </aside>
 
