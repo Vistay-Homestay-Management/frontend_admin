@@ -52,31 +52,33 @@ a { color: inherit; text-decoration: none; }
 
 .admin-shell { min-height: 100vh; display: grid; grid-template-columns: 72px minmax(0, 1fr); transition: grid-template-columns .34s cubic-bezier(.22,.8,.25,1); }
 .admin-shell.rail-expanded { grid-template-columns: 196px minmax(0, 1fr); }
-.rail { position: sticky; top: 0; z-index: 20; height: 100vh; padding: 16px 8px 14px; border-right: 1px solid rgba(213,234,220,.18); background: linear-gradient(155deg, #557a68 0%, #3f6958 30%, #315a4c 62%, #284b40 100%); color: white; display: flex; flex-direction: column; align-items: center; box-shadow: 10px 0 34px rgba(24,64,47,.1); }
-.rail-mark { width: 100%; min-height: 46px; padding: 0 5px; display: flex; align-items: center; justify-content: center; gap: 10px; overflow: hidden; }
-.rail-logo-frame { flex: 0 0 auto; width: 48px; height: 42px; padding: 3px; border: 1px solid rgba(255,255,255,.66); border-radius: 8px; background: rgba(250,252,244,.94); display: grid; place-items: center; box-shadow: 0 7px 18px rgba(21,65,46,.12); }
+.rail { position: sticky; top: 0; z-index: 20; height: 100vh; padding: 16px 10px 14px; border-right: 1px solid rgba(224,239,230,.16); background: linear-gradient(165deg, #294b3e 0%, #224237 46%, #1b382f 100%); color: white; display: flex; flex-direction: column; align-items: center; box-shadow: 10px 0 34px rgba(18,52,39,.1); }
+.rail-mark { width: 100%; min-height: 44px; padding: 0; display: flex; align-items: center; justify-content: center; gap: 10px; overflow: hidden; }
+.rail-logo-frame { flex: 0 0 auto; width: 44px; height: 44px; padding: 2px; border: 1px solid rgba(255,255,255,.56); border-radius: 5px; background: rgba(250,252,244,.96); display: grid; place-items: center; box-shadow: 0 6px 16px rgba(11,42,29,.12); }
 .rail-logo-frame img { width: 100%; height: 100%; object-fit: contain; transform: scale(1.08); }
 .rail-wordmark { max-width: 0; overflow: hidden; opacity: 0; color: #f8fbf6; font-family: Outfit, Geist, sans-serif; font-size: 1.2rem; font-weight: 600; letter-spacing: -.035em; white-space: nowrap; transform: translateX(-5px); transition: max-width .3s ease, opacity .2s ease, transform .3s ease; }
-.rail-expanded .rail-mark { justify-content: flex-start; }
+.rail-expanded .rail-mark { padding-left: 4px; justify-content: flex-start; }
 .rail-expanded .rail-wordmark { max-width: 88px; opacity: 1; transform: translateX(0); }
-.rail-toggle { position: absolute; top: 24px; right: -13px; z-index: 2; width: 27px; height: 27px; padding: 0; border: 1px solid #c9ddd1; border-radius: 7px; background: #f7faf5; color: #315a4c; display: grid; place-items: center; box-shadow: 0 5px 15px rgba(24,64,47,.14); transition: color .2s ease, background .2s ease, transform .34s cubic-bezier(.22,.8,.25,1); }
-.rail-toggle:hover { background: #e9f2e9; color: #193f32; }
-.rail-expanded .rail-toggle { transform: rotate(180deg); }
-.rail nav { margin: 25px 0 auto; width: 100%; min-height: 0; padding: 0; display: grid; align-content: start; justify-items: center; gap: 6px; overflow-y: auto; scrollbar-width: none; }
+.rail nav { margin: 24px 0 auto; width: 100%; min-height: 0; padding: 0; display: grid; align-content: start; justify-items: center; gap: 6px; overflow-y: auto; scrollbar-width: none; }
 .rail nav::-webkit-scrollbar { display: none; }
-.rail nav a { width: 44px; height: 44px; padding: 0; border: 1px solid rgba(236,247,239,.13); border-radius: 8px; background: rgba(248,252,246,.055); color: #d3e2d9; display: flex; align-items: center; justify-content: center; gap: 0; font-size: .72rem; font-weight: 600; position: relative; box-shadow: inset 0 1px rgba(255,255,255,.04); transition: width .3s ease, padding .3s ease, gap .3s ease, background .24s ease, border-color .24s ease, color .24s ease, box-shadow .24s ease, transform .24s ease; }
-.rail nav a svg { font-size: 1.35rem; }
-.rail nav a span { max-width: 0; overflow: hidden; opacity: 0; white-space: nowrap; transform: translateX(-4px); transition: max-width .3s ease, opacity .2s ease, transform .3s ease; }
-.rail-expanded .rail nav a { width: 100%; padding: 0 12px; justify-content: flex-start; gap: 10px; }
-.rail-expanded .rail nav a span { max-width: 120px; opacity: 1; transform: translateX(0); }
-.rail nav a:hover { border-color: rgba(236,247,239,.28); background: rgba(244,249,242,.12); color: #fff; transform: translateY(-1px); }
-.rail nav .active { border-color: rgba(242,247,218,.72); background: linear-gradient(135deg, #f0f3da 0%, #dcebd4 48%, #cbe4da 100%); color: #234d3d; box-shadow: 0 7px 18px rgba(26,78,56,.15), inset 0 1px rgba(255,255,255,.76); }
-.rail nav .active:hover { color: #183f31; }
-.rail nav a > i { position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; padding: 0 5px; border: 2px solid #456f5d; border-radius: 99px; background: #f1f5dd; color: #234739; display: grid; place-items: center; font-style: normal; font-size: .58rem; }
-.rail-avatar { flex: 0 0 auto; width: 40px; height: 40px; border: 0; border-radius: 8px; background: #e9efd8; color: #294e3f; font-weight: 750; }
-.rail-account { width: 100%; margin-top: 10px; padding-top: 13px; border-top: 1px solid rgba(190,229,205,.14); display: flex; align-items: center; justify-content: center; gap: 10px; }
+.rail nav a { width: 44px; height: 44px; padding: 0; color: #dae6df; display: flex; align-items: center; justify-content: center; gap: 0; font-size: .72rem; font-weight: 600; position: relative; transition: width .3s ease, gap .3s ease, color .2s ease; }
+.rail-option-tile { flex: 0 0 auto; width: 44px; height: 44px; border: 1px solid rgba(255,255,255,.36); border-radius: 5px; background: transparent; color: inherit; display: grid; place-items: center; position: relative; box-shadow: inset 0 1px rgba(255,255,255,.035); transition: background .22s ease, border-color .22s ease, color .22s ease, box-shadow .22s ease, transform .22s ease; }
+.rail-option-tile svg { font-size: 1.55rem; }
+.rail-option-label { max-width: 0; overflow: hidden; opacity: 0; white-space: nowrap; transform: translateX(-4px); transition: max-width .3s ease, opacity .2s ease, transform .3s ease; }
+.rail-expanded .rail nav { justify-items: stretch; }
+.rail-expanded .rail nav a { width: 100%; padding-left: 4px; justify-content: flex-start; gap: 10px; }
+.rail-expanded .rail-option-label { max-width: 120px; opacity: 1; transform: translateX(0); }
+.rail nav a:hover .rail-option-tile { border-color: rgba(255,255,255,.62); color: #fff; transform: translateY(-1px); }
+.rail nav .active .rail-option-tile { border-color: rgba(240,248,240,.76); background: linear-gradient(135deg, #b9cdbd 0%, #a7c3b2 52%, #98bbae 100%); color: #173b2e; box-shadow: 0 6px 16px rgba(10,42,28,.16), inset 0 1px rgba(255,255,255,.42); }
+.rail nav .active:hover .rail-option-tile { color: #102f24; }
+.rail-option-tile > i { position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; padding: 0 5px; border: 2px solid #294b3e; border-radius: 99px; background: #e7edd9; color: #234739; display: grid; place-items: center; font-style: normal; font-size: .58rem; }
+.rail-toggle { flex: 0 0 auto; width: 44px; height: 34px; margin-top: 10px; padding: 0; border: 1px solid rgba(255,255,255,.36); border-radius: 5px; background: transparent; color: #dbe8e0; display: grid; place-items: center; transition: color .2s ease, border-color .2s ease, background .2s ease, transform .34s cubic-bezier(.22,.8,.25,1); }
+.rail-toggle:hover { border-color: rgba(255,255,255,.65); background: rgba(255,255,255,.06); color: #fff; }
+.rail-expanded .rail-toggle { align-self: flex-start; margin-left: 4px; transform: rotate(180deg); }
+.rail-avatar { flex: 0 0 auto; width: 44px; height: 44px; border: 1px solid rgba(255,255,255,.36); border-radius: 5px; background: #dbe5d5; color: #294e3f; font-weight: 750; }
+.rail-account { width: 100%; margin-top: 10px; padding-top: 12px; border-top: 1px solid rgba(225,239,230,.14); display: flex; align-items: center; justify-content: center; gap: 10px; }
 .rail-account > span { max-width: 0; overflow: hidden; opacity: 0; display: grid; gap: 3px; transform: translateX(-4px); transition: max-width .3s ease, opacity .2s ease, transform .3s ease; }
-.rail-expanded .rail-account { justify-content: flex-start; padding-inline: 5px; }
+.rail-expanded .rail-account { justify-content: flex-start; padding-left: 4px; }
 .rail-expanded .rail-account > span { max-width: 118px; opacity: 1; transform: translateX(0); }
 .rail-account strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .72rem; }
 .rail-account small { overflow: hidden; color: #c1d3c8; font-size: .58rem; text-overflow: ellipsis; white-space: nowrap; }
@@ -493,11 +495,9 @@ a { color: inherit; text-decoration: none; }
 
 @media (max-width: 1000px) {
   .admin-shell { grid-template-columns: 72px minmax(0, 1fr); }
-  .rail { padding: 18px 7px 14px; align-items: center; }
+  .rail { padding: 16px 10px 14px; align-items: center; }
   .rail-mark { display: flex; }
   .rail nav a { width: 44px; padding: 0; justify-content: center; }
-  .rail nav a > i { position: absolute; top: 2px; right: 2px; }
-  .rail-account { border: 0; }
   .inventory-toolbar { grid-template-columns: 1fr auto; }
   .property-search { grid-column: 1 / -1; min-height: 46px; }
   .inventory-summary-card { grid-column: span 6; }
@@ -522,8 +522,8 @@ a { color: inherit; text-decoration: none; }
   .rail { z-index: 30; position: fixed; inset: auto 8px 8px; width: auto; height: 64px; padding: 6px; border: 1px solid rgba(171,225,193,.16); border-radius: 16px; flex-direction: row; }
   .rail-mark, .rail-account, .rail-toggle { display: none; }
   .rail nav { margin: 0; padding: 0; display: flex; gap: 5px; overflow-x: auto; overflow-y: hidden; }
-  .rail nav a, .admin-shell.rail-expanded .rail nav a { width: 46px; min-width: 46px; height: 46px; padding: 5px; flex-direction: column; justify-content: center; gap: 3px; font-size: .53rem; }
-  .rail nav a span, .admin-shell.rail-expanded .rail nav a span { max-width: 0; opacity: 0; }
+  .rail nav a, .admin-shell.rail-expanded .rail nav a { width: 46px; min-width: 46px; height: 46px; padding: 0; justify-content: center; gap: 0; font-size: .53rem; }
+  .rail-option-label, .admin-shell.rail-expanded .rail-option-label { max-width: 0; opacity: 0; }
   .workspace { padding: 34px 18px 112px; }
   .topbar { align-items: flex-start; }
   .topbar h1 { font-size: 2.15rem; }
@@ -580,7 +580,7 @@ a { color: inherit; text-decoration: none; }
 
 @media (max-width: 480px) {
   .rail nav a { min-width: 46px; }
-  .rail nav a span { font-size: .48rem; }
+  .rail-option-label { font-size: .48rem; }
   .inventory-heading h2 { font-size: 2.3rem; }
   .date-window > button { display: none; }
   .date-window label { border-left: 0; }
