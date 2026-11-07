@@ -3,6 +3,8 @@ import {
   Bell,
   Buildings,
   CalendarDots,
+  CaretLeft,
+  CaretRight,
   ChartBar,
   CheckCircle,
   FileText,
@@ -191,7 +193,7 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
           aria-label={railExpanded ? 'Thu gọn thanh điều hướng' : 'Mở rộng thanh điều hướng'}
           aria-expanded={railExpanded}
         >
-          <span aria-hidden="true">&lt;</span>
+          {railExpanded ? <CaretLeft weight="bold" aria-hidden="true" /> : <CaretRight weight="bold" aria-hidden="true" />}
         </button>
         <div className="rail-account"><button className="rail-avatar" aria-label={displayName}>{initials(displayName)}</button><span><strong>{displayName}</strong><small>{profile.viewer?.roles[0] ?? 'Backoffice'}</small></span></div>
       </aside>
