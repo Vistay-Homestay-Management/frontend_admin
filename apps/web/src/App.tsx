@@ -178,7 +178,7 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
                 aria-current={active ? 'page' : undefined}
               >
                 <span className="rail-option-tile">
-                  <Icon weight={active ? 'bold' : 'regular'} />
+                  <Icon weight={active ? 'regular' : 'light'} />
                   {page === 'notifications' && inbox.unreadCount > 0 && <i>{inbox.unreadCount}</i>}
                 </span>
                 <span className="rail-option-label">{label}</span>
