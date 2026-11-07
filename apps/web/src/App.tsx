@@ -3,7 +3,6 @@ import {
   Bell,
   Buildings,
   CalendarDots,
-  CaretDoubleRight,
   ChartBar,
   CheckCircle,
   FileText,
@@ -159,7 +158,7 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
   return (
     <main className={`admin-shell${railExpanded ? ' rail-expanded' : ''}`}>
       <aside className="rail">
-        <a className="rail-mark" href="#overview" aria-label="ViStay" title="ViStay">
+        <a className="rail-mark" href="#overview" aria-label="Vistay">
           <span className="rail-logo-frame" aria-hidden="true">
             <img src={vistayLogo} alt="" />
           </span>
@@ -175,7 +174,6 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
                 href={`#${page}`}
                 aria-label={label}
                 aria-current={active ? 'page' : undefined}
-                title={label}
               >
                 <span className="rail-option-tile">
                   <Icon weight={active ? 'bold' : 'regular'} />
@@ -192,11 +190,10 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
           onClick={toggleRail}
           aria-label={railExpanded ? 'Thu gọn thanh điều hướng' : 'Mở rộng thanh điều hướng'}
           aria-expanded={railExpanded}
-          title={railExpanded ? 'Thu gọn' : 'Mở rộng'}
         >
-          <CaretDoubleRight weight="bold" />
+          <span aria-hidden="true">&lt;</span>
         </button>
-        <div className="rail-account"><button className="rail-avatar" title={displayName}>{initials(displayName)}</button><span><strong>{displayName}</strong><small>{profile.viewer?.roles[0] ?? 'Backoffice'}</small></span></div>
+        <div className="rail-account"><button className="rail-avatar" aria-label={displayName}>{initials(displayName)}</button><span><strong>{displayName}</strong><small>{profile.viewer?.roles[0] ?? 'Backoffice'}</small></span></div>
       </aside>
 
       <section className="workspace">
