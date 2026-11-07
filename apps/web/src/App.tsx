@@ -3,6 +3,7 @@ import {
   Bell,
   Buildings,
   CalendarDots,
+  CaretDoubleRight,
   ChartBar,
   CheckCircle,
   FileText,
@@ -19,6 +20,7 @@ import {
 import { useEffect, useState } from 'react'
 import { useAuth } from 'react-oidc-context'
 import './App.css'
+import vistayLogo from './assets/vistay-logo.png'
 import { AuthorizationConsole } from './AuthorizationConsole'
 import { AccountProvisioning } from './AccountProvisioning'
 import { SecuritySessions } from './SecuritySessions'
@@ -137,6 +139,7 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
   const inbox = useNotificationInbox(config.graphqlUrl, accessToken, profile.viewer?.accountId)
   const displayName = profile.viewer?.displayName ?? auth.user?.profile.preferred_username ?? 'Backoffice'
   const [activePage, setActivePage] = useState<AdminPage>(pageFromHash)
+  const [railExpanded, setRailExpanded] = useState(() => window.localStorage.getItem('vistay.admin.rail-expanded') === 'true')
 
   useEffect(() => {
     const syncPage = () => setActivePage(pageFromHash())
@@ -147,18 +150,31 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
 
   const pageTitle = pageTitles[activePage]
 
+  const toggleRail = () => setRailExpanded((expanded) => {
+    const next = !expanded
+    window.localStorage.setItem('vistay.admin.rail-expanded', String(next))
+    return next
+  })
+
   return (
-    <main className="admin-shell">
+    <main className={`admin-shell${railExpanded ? ' rail-expanded' : ''}`}>
       <aside className="rail">
         <a className="rail-mark" href="#overview" aria-label="ViStay" title="ViStay">
-          <span className="rail-symbol" aria-hidden="true">
-            <svg viewBox="0 0 36 36" role="presentation">
-              <path d="M7.5 9.5 18 28 28.5 9.5" />
-              <path d="m12.5 9.5 5.5 10 5.5-10" />
-            </svg>
+          <span className="rail-logo-frame" aria-hidden="true">
+            <img src={vistayLogo} alt="" />
           </span>
-          <strong>ViStay</strong><small>Admin workspace</small>
+          <span className="rail-wordmark">Vistay</span>
         </a>
+        <button
+          type="button"
+          className="rail-toggle"
+          onClick={toggleRail}
+          aria-label={railExpanded ? 'Thu gọn thanh điều hướng' : 'Mở rộng thanh điều hướng'}
+          aria-expanded={railExpanded}
+          title={railExpanded ? 'Thu gọn' : 'Mở rộng'}
+        >
+          <CaretDoubleRight weight="bold" />
+        </button>
         <nav aria-label="Điều hướng chính">
           {navigationItems.map(({ page, label, icon: Icon }) => {
             const active = activePage === page
