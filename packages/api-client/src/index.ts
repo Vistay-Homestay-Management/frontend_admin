@@ -2110,6 +2110,109 @@ export async function fetchOperationsAnalytics(graphqlUrl: string, accessToken: 
   return data.operationsAnalytics
 }
 
+export type OverviewView = 'SYSTEM' | 'PERSONAL'
+
+export interface OverviewBookingAnalytics {
+  view: OverviewView
+  from: string
+  to: string
+  generatedAt: string
+  totalBookings: number
+  confirmedBookings: number
+  cancelledBookings: number
+  guests: number
+  bookedProperties: number
+  occupiedNights: number
+  occupancyRate: string
+  today: {
+    expectedCheckIns: number
+    expectedCheckOuts: number
+    inHouse: number
+    pendingConfirmation: number
+    cancelledToday: number
+    occupiedProperties: number
+  }
+  money: Array<{ currency: string; revenue: string; averageBookingValue: string }>
+}
+
+export interface OverviewDashboardData {
+  booking: OverviewBookingAnalytics | null
+  property: {
+    activeProperties: number
+    maintenanceProperties: number
+    propertiesNeedingAttention: number
+  } | null
+  finance: {
+    totalGrossRevenue: string
+    totalCommissionEarned: string
+    totalCleaningFees: string
+    totalAdjustments: string
+    totalNetPayoutCalculated: string
+    totalPayableOutstanding: string
+    totalPayablePaid: string
+    totalSettlementCount: number
+    approvedSettlementCount: number
+    paidSettlementCount: number
+  } | null
+  errors: string[]
+}
+
+export async function fetchOverviewDashboard(
+  graphqlUrl: string,
+  accessToken: string,
+  input: { view: OverviewView; from: string; to: string; includeProperty: boolean; includeFinance: boolean },
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<OverviewDashboardData> {
+  const query = `query OverviewDashboard($view: OverviewView!, $input: AnalyticsRangeInput!, $includeProperty: Boolean!, $includeFinance: Boolean!) {
+    booking: overviewAnalytics(view: $view, input: $input) {
+      view from to generatedAt totalBookings confirmedBookings cancelledBookings guests bookedProperties
+      occupiedNights occupancyRate
+      today { expectedCheckIns expectedCheckOuts inHouse pendingConfirmation cancelledToday occupiedProperties }
+      money { currency revenue averageBookingValue }
+    }
+    property: propertyOperationalSummary @include(if: $includeProperty) {
+      activeProperties maintenanceProperties propertiesNeedingAttention
+    }
+    finance: financeDashboardSummary @include(if: $includeFinance) {
+      totalGrossRevenue totalCommissionEarned totalCleaningFees totalAdjustments totalNetPayoutCalculated
+      totalPayableOutstanding totalPayablePaid totalSettlementCount approvedSettlementCount paidSettlementCount
+    }
+  }`
+  const response = await fetcher(graphqlUrl, {
+    method: 'POST',
+    headers: {
+      accept: 'application/graphql-response+json, application/json',
+      authorization: `Bearer ${accessToken}`,
+      'content-type': 'application/json',
+      'x-csrf-token': '1',
+    },
+    body: JSON.stringify({
+      operationName: 'OverviewDashboard',
+      query,
+      variables: {
+        view: input.view,
+        input: { from: input.from, to: input.to },
+        includeProperty: input.includeProperty,
+        includeFinance: input.includeFinance,
+      },
+    }),
+  })
+  const payload = await response.json() as GraphqlResponse<{
+    booking?: OverviewBookingAnalytics | null
+    property?: OverviewDashboardData['property']
+    finance?: OverviewDashboardData['finance']
+  }>
+  if (!response.ok && !payload.data) {
+    throw new ApiError(graphqlErrorMessage(payload.errors) || `Overview request failed (${response.status})`, response.status)
+  }
+  return {
+    booking: payload.data?.booking ?? null,
+    property: payload.data?.property ?? null,
+    finance: payload.data?.finance ?? null,
+    errors: payload.errors?.map((error) => error.message || error.extensions?.code || 'Không tải được một nguồn dữ liệu') ?? [],
+  }
+}
+
 export async function reviewBookingConfiguration(
   graphqlUrl: string,
   accessToken: string,

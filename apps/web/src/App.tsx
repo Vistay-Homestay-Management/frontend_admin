@@ -8,12 +8,11 @@ import {
   ChartBar,
   CheckCircle,
   FileText,
+  GearSix,
   Key,
   ShieldCheck,
-  SignOut,
   SlidersHorizontal,
   SpinnerGap,
-  SquaresFour,
   UserCircle,
   WarningCircle,
   WifiHigh,
@@ -116,7 +115,6 @@ const pageTitles: Record<AdminPage, { eyebrow: string; title: string }> = {
 }
 
 const navigationItems = [
-  { page: 'overview', label: 'Chung', icon: SquaresFour },
   { page: 'inventory', label: 'Booking', icon: CalendarDots },
   { page: 'management', label: 'Căn hộ', icon: Buildings },
   { page: 'analytics', label: 'Thống kê', icon: ChartBar },
@@ -140,6 +138,7 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
   const inbox = useNotificationInbox(config.graphqlUrl, accessToken, profile.viewer?.accountId)
   const displayName = profile.viewer?.displayName ?? auth.user?.profile.preferred_username ?? 'Backoffice'
   const [activePage, setActivePage] = useState<AdminPage>(pageFromHash)
+  const [overviewSection, setOverviewSection] = useState<'system' | 'personal'>('system')
   const [railExpanded, setRailExpanded] = useState(() => window.localStorage.getItem('vistay.admin.rail-expanded') === 'true')
 
   useEffect(() => {
@@ -160,7 +159,12 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
   return (
     <main className={`admin-shell${railExpanded ? ' rail-expanded' : ''}`}>
       <aside className="rail">
-        <a className="rail-mark" href="#overview" aria-label="Vistay">
+        <a
+          className="rail-mark"
+          href="#overview"
+          aria-label="Vistay - Chung"
+          aria-current={activePage === 'overview' ? 'page' : undefined}
+        >
           <span className="rail-logo-frame" aria-hidden="true">
             <img src={vistayLogo} alt="" />
           </span>
@@ -178,7 +182,7 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
                 aria-current={active ? 'page' : undefined}
               >
                 <span className="rail-option-tile">
-                  <Icon weight={active ? 'bold' : 'light'} />
+                  <Icon weight={active ? 'regular' : 'light'} />
                   {page === 'notifications' && inbox.unreadCount > 0 && <i>{inbox.unreadCount}</i>}
                 </span>
                 <span className="rail-option-label">{label}</span>
@@ -199,13 +203,63 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
       </aside>
 
       <section className="workspace">
-        <header className="topbar">
-          <div>
-            <p className="eyebrow">{pageTitle.eyebrow}</p>
-            <h1>{pageTitle.title}</h1>
+        <header className={`topbar${activePage === 'overview' ? ' has-context' : ''}`}>
+          <div className="topbar-context" aria-label="Phạm vi trang Chung">
+            {activePage === 'overview' && (
+              <>
+                <button
+                  type="button"
+                  className={overviewSection === 'system' ? 'active' : ''}
+                  onClick={() => setOverviewSection('system')}
+                  aria-pressed={overviewSection === 'system'}
+                >
+                  Hệ thống
+                </button>
+                <button
+                  type="button"
+                  className={overviewSection === 'personal' ? 'active' : ''}
+                  onClick={() => setOverviewSection('personal')}
+                  aria-pressed={overviewSection === 'personal'}
+                >
+                  Cá nhân
+                </button>
+              </>
+            )}
           </div>
-          <div className="topbar-actions"><span className={`connection-chip ${inbox.status}`}><i />{streamLabels[inbox.status]}</span><button className="secondary-button" onClick={() => void auth.signoutRedirect()}>Đăng xuất <SignOut /></button></div>
+          <div className="topbar-actions">
+            <span className="topbar-icon-button topbar-static-icon" role="img" aria-label="Vận hành">
+              <WifiHigh weight="regular" aria-hidden="true" />
+            </span>
+            <span className="topbar-icon-button topbar-static-icon" role="img" aria-label="Cảnh báo">
+              <WarningCircle weight="regular" aria-hidden="true" />
+            </span>
+            <span className={`connection-chip ${inbox.status}`}><i />{streamLabels[inbox.status]}</span>
+            <a
+              className={`topbar-icon-button${activePage === 'notifications' ? ' active' : ''}`}
+              href="#notifications"
+              aria-label="Thông báo"
+              aria-current={activePage === 'notifications' ? 'page' : undefined}
+            >
+              <Bell weight="regular" aria-hidden="true" />
+              {inbox.unreadCount > 0 && <i className="topbar-icon-badge">{inbox.unreadCount}</i>}
+            </a>
+            <a
+              className={`topbar-icon-button${activePage === 'configuration' ? ' active' : ''}`}
+              href="#configuration"
+              aria-label="Cài đặt"
+              aria-current={activePage === 'configuration' ? 'page' : undefined}
+            >
+              <GearSix weight="regular" aria-hidden="true" />
+            </a>
+            <a className="topbar-user-avatar" href="#profile" aria-label={`Hồ sơ của ${displayName}`}>
+              {initials(displayName)}
+            </a>
+          </div>
         </header>
+        <div className="page-heading">
+          <p className="eyebrow">{pageTitle.eyebrow}</p>
+          <h1>{pageTitle.title}</h1>
+        </div>
 
         {profile.status === 'loading' && (
           <section className="inline-state" aria-live="polite"><SpinnerGap className="spinner" />Đang tải hồ sơ từ Federation…</section>
@@ -221,7 +275,7 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
 
         {profile.viewer && (
           <>
-            {activePage === 'overview' && <OverviewDashboard graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} />}
+              {activePage === 'overview' && <OverviewDashboard graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} section={overviewSection} />}
             {activePage === 'analytics' && <AnalyticsDashboard graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} />}
             {activePage === 'inventory' && (
               <InventoryWorkspace graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} />
