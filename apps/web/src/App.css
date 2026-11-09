@@ -90,14 +90,13 @@ a { color: inherit; text-decoration: none; }
 .rail-expanded .rail-account > span { max-width: 118px; opacity: 1; transform: translateX(0); }
 .rail-account strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .72rem; }
 .rail-account small { overflow: hidden; color: #8bbb92; font-size: .58rem; text-overflow: ellipsis; white-space: nowrap; }
-.workspace { width: min(1720px, 100%); margin: 0 auto; padding: 9px clamp(22px, 3.5vw, 58px) 100px; }
+.workspace { --workspace-gutter: 36px; width: 100%; margin: 0; padding: 9px var(--workspace-gutter) 100px; }
 .topbar { min-height: 44px; display: flex; justify-content: space-between; align-items: center; gap: 24px; }
-.topbar-context { position: fixed; top: 9px; left: 72px; z-index: 19; min-width: 0; display: flex; align-items: center; gap: 9px; transition: left .34s cubic-bezier(.22,.8,.25,1); }
-.rail-expanded .topbar-context { left: 205px; }
-.topbar-context button { height: 44px; padding: 0 16px; border: 1.25px solid var(--line); border-radius: 5px; background: #fff; color: #12544f; font-size: .7rem; font-weight: 650; transition: border-color .2s ease, background .2s ease, color .2s ease, transform .2s ease; }
+.topbar-context { min-width: 0; display: flex; align-items: center; gap: 9px; }
+.topbar-context-current, .topbar-context button { height: 44px; padding: 0 16px; border: 1.25px solid var(--line); border-radius: 5px; background: #fff; color: #12544f; display: inline-flex; align-items: center; justify-content: center; font-size: .7rem; font-weight: 650; white-space: nowrap; transition: border-color .2s ease, background .2s ease, color .2s ease, transform .2s ease; }
 .topbar-context button:hover { border-color: #8bbb92; background: #f4f8f5; color: #092328; transform: translateY(-1px); }
-.topbar-context button.active, .topbar-context button.active:hover { border-color: transparent; background: #092328; color: #fff; }
-.topbar-actions { position: fixed; top: 9px; right: 9px; z-index: 19; display: flex; align-items: center; gap: 9px; }
+.topbar-context-current, .topbar-context button.active, .topbar-context button.active:hover { border-color: transparent; background: linear-gradient(145deg, #092328 0%, #12544f 62%, #2a835f 145%); color: #fff; box-shadow: 0 7px 18px rgba(9,35,40,.14); }
+.topbar-actions { position: fixed; top: 9px; right: 36px; z-index: 19; display: flex; align-items: center; gap: 9px; }
 .connection-chip { height: 44px; padding: 0 13px; border: 1.25px solid var(--line); border-radius: 5px; background: #fff; color: var(--muted); display: inline-flex; align-items: center; gap: 7px; font-size: .68rem; white-space: nowrap; }
 .connection-chip i { width: 7px; height: 7px; border-radius: 50%; background: #cca43b; }
 .connection-chip.live i { background: #2caa68; box-shadow: 0 0 0 4px rgba(44,170,104,.12); }
@@ -389,12 +388,13 @@ a { color: inherit; text-decoration: none; }
 .authorization-locked p { margin: 0; color: var(--muted); }
 
 /* Inventory workspace: operational layout derived from the room-management references. */
-.inventory-workspace { margin-top: 42px; }
+.inventory-workspace { width: 100%; margin-top: 34px; overflow-x: clip; overflow-y: visible; }
 .inventory-heading { display: flex; justify-content: space-between; align-items: flex-end; gap: 28px; }
 .inventory-heading > div { max-width: 64rem; }
 .inventory-heading h2 { max-width: 64rem; margin: 10px 0 10px; font-size: clamp(2.15rem, 4.4vw, 5rem); line-height: .96; letter-spacing: -.065em; }
 .inventory-heading > div > p:last-child { max-width: 720px; margin: 0; color: var(--muted); font-size: .88rem; line-height: 1.65; }
 .inventory-heading-actions { min-width: min(100%, 470px); display: grid; grid-template-columns: minmax(250px, 1fr) auto; align-items: stretch; gap: 10px; }
+.inventory-heading-actions.summary-only { grid-template-columns: minmax(250px, 1fr); }
 .inventory-heading-signal { min-height: 68px; padding: 9px 0 9px 13px; display: grid; grid-template-columns: repeat(3, minmax(72px, 1fr)); border: 1px solid var(--line); border-radius: 13px; background: rgba(255, 255, 255, .78); box-shadow: 0 10px 24px rgba(23, 35, 29, .035); }
 .inventory-heading-signal > div { min-width: 0; padding: 0 12px; display: grid; align-content: center; gap: 5px; border-left: 1px solid var(--line); }
 .inventory-heading-signal > div:first-child { padding-left: 0; border-left: 0; }
@@ -482,6 +482,28 @@ a { color: inherit; text-decoration: none; }
 .inventory-activity-track span { align-self: center; font-size: .62rem; white-space: nowrap; }
 .inventory-activity-track time { color: var(--muted); font-size: .54rem; }
 
+.booking-operations-board { margin-top: 11px; border: 1px solid var(--line); border-radius: 18px; background: var(--card); overflow: hidden; box-shadow: 0 20px 60px rgba(23,35,29,.045); }
+.booking-operations-heading { min-height: 92px; padding: 20px 22px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.booking-operations-heading span { color: var(--muted); font-size: .6rem; }
+.booking-operations-heading h3 { margin: 6px 0 0; color: #092328; font-size: 1.35rem; letter-spacing: -.04em; }
+.booking-operations-heading > strong { min-width: 44px; height: 44px; border-radius: 8px; background: linear-gradient(145deg, #092328 0%, #12544f 62%, #2a835f 145%); color: #fff; display: grid; place-items: center; font-size: 1rem; }
+.booking-operation-table { border-top: 1px solid var(--line); }
+.booking-operation-table-head, .booking-operation-row { min-width: 760px; display: grid; grid-template-columns: minmax(180px, 1.25fr) minmax(180px, 1.2fr) minmax(80px, .5fr) minmax(130px, .8fr) minmax(130px, .8fr); gap: 16px; align-items: center; }
+.booking-operation-table-head { padding: 11px 18px; background: #f0f2ec; color: #63736b; font-size: .57rem; font-weight: 700; }
+.booking-operation-row { width: 100%; min-height: 72px; padding: 11px 18px; border: 0; border-top: 1px solid #e8ece8; background: #fff; color: var(--ink); text-align: left; transition: background-color .2s ease, transform .2s ease; }
+.booking-operation-row:hover { background: #f4f8f5; transform: translateX(2px); }
+.booking-operation-row > span { min-width: 0; display: grid; gap: 5px; }
+.booking-operation-row strong { overflow: hidden; color: #173c2b; font-size: .67rem; text-overflow: ellipsis; white-space: nowrap; }
+.booking-operation-row small { overflow: hidden; color: var(--muted); font-size: .55rem; text-overflow: ellipsis; white-space: nowrap; }
+.booking-status { width: fit-content; padding: 5px 7px; border-radius: 6px; background: #e4eee8; color: #315b54; font-size: .54rem; font-style: normal; font-weight: 700; }
+.booking-status.status-active { background: #dff1e2; color: #245e3b; }
+.booking-status.status-tentative { background: #f3ead4; color: #765b18; }
+.booking-status.status-released, .booking-status.status-cancelled { background: #ecefec; color: #6f7b75; }
+.booking-operation-empty { min-height: 230px; padding: 32px; color: var(--muted); display: grid; place-content: center; justify-items: center; gap: 8px; text-align: center; }
+.booking-operation-empty svg { width: 38px; height: 38px; margin-bottom: 4px; padding: 9px; border-radius: 9px; background: #e5eee7; color: #2a835f; }
+.booking-operation-empty strong { color: #315b54; font-size: .78rem; }
+.booking-operation-empty span { font-size: .62rem; }
+
 .inventory-overlay, .inventory-drawer-backdrop { position: fixed; z-index: 80; inset: 0; padding: 20px; background: rgba(8,23,16,.58); backdrop-filter: blur(8px); display: grid; place-items: center; }
 .inventory-dialog { width: min(690px, 100%); padding: 32px; border-radius: 22px; background: var(--card); position: relative; box-shadow: 0 30px 100px rgba(8,23,16,.28); }
 .inventory-dialog h3, .inventory-drawer h3 { margin: 8px 0; font-size: clamp(2rem, 4vw, 3.8rem); line-height: 1; letter-spacing: -.06em; }
@@ -548,13 +570,13 @@ a { color: inherit; text-decoration: none; }
   .rail nav { margin: 0; padding: 0; display: flex; gap: 5px; overflow-x: auto; overflow-y: hidden; }
   .rail nav a, .admin-shell.rail-expanded .rail nav a { width: 46px; min-width: 46px; height: 46px; padding: 0; justify-content: center; gap: 0; font-size: .53rem; }
   .rail-option-label, .admin-shell.rail-expanded .rail-option-label { max-width: 0; opacity: 0; }
-  .workspace { padding: 9px 18px 112px; }
+  .workspace { --workspace-gutter: 18px; padding: 9px var(--workspace-gutter) 112px; }
   .topbar { align-items: center; }
-  .topbar-actions { gap: 7px; }
+  .topbar-actions { right: 18px; gap: 7px; }
   .connection-chip { width: 44px; padding: 0; justify-content: center; font-size: 0; }
-  .topbar-context { left: 18px; }
-  .topbar.has-context .topbar-context { top: 62px; }
-  .topbar.has-context + .page-heading { margin-top: 80px; }
+  .topbar.has-context { padding-top: 53px; }
+  .topbar-context { overflow-x: auto; scrollbar-width: none; }
+  .topbar-context::-webkit-scrollbar { display: none; }
   .page-heading { margin-top: 30px; }
   .page-heading h1 { font-size: 2.15rem; }
   .secondary-button { padding: 10px; }
@@ -573,6 +595,7 @@ a { color: inherit; text-decoration: none; }
   .inventory-toolbar { grid-template-columns: 1fr auto; }
   .date-window { grid-column: 1 / -1; }
   .date-window label { min-width: 0; flex: 1; }
+  .booking-operation-table { overflow-x: auto; }
   .inventory-apply-button { min-width: 96px; }
   .inventory-filter-panel > div { grid-template-columns: 1fr; }
   .inventory-summary-card { grid-column: span 12; min-height: 122px; }
@@ -1036,7 +1059,8 @@ a { color: inherit; text-decoration: none; }
 }
 
 /* Overview: service-owned projections arranged as a compact operational bento. */
-.home-overview { width: 100%; max-width: 1500px; margin: 34px auto 0; overflow-x: hidden; }
+.home-overview { width: 100%; max-width: 1500px; margin: 34px auto 0; overflow-x: clip; overflow-y: visible; }
+.overview-workspace .home-overview { max-width: none; }
 .home-overview-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 28px; margin-bottom: 24px; }
 .home-overview-head h1 { margin: 0; color: #092328; font-size: clamp(2.15rem, 4vw, 4.5rem); font-weight: 690; line-height: .94; letter-spacing: -.065em; }
 .home-overview-head p { max-width: 720px; margin: 11px 0 0; color: #587068; font-size: .76rem; line-height: 1.5; }
@@ -1076,7 +1100,7 @@ a { color: inherit; text-decoration: none; }
   .home-group.stay, .home-group.operations, .home-group.finance, .home-group.actions { grid-column: span 12; }
 }
 @media (max-width: 720px) {
-  .home-overview { margin-top: 72px; }
+  .home-overview { margin-top: 34px; }
   .home-overview-head { align-items: flex-start; flex-direction: column; gap: 16px; }
   .home-overview-head h1 { font-size: 2.6rem; }
   .home-group-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

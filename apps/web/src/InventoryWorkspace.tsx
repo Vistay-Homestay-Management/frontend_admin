@@ -36,7 +36,10 @@ interface InventoryWorkspaceProps {
   graphqlUrl: string
   accessToken: string
   viewer: BackofficeViewer
+  section: InventorySection
 }
+
+export type InventorySection = 'map' | 'reservations' | 'check-in' | 'check-out'
 
 const LOCAL_MANAGEMENT_PROPERTY = '61000000-0000-4000-8000-000000000010'
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
@@ -60,6 +63,33 @@ const statusLabels: Record<InventoryBlockStatus, string> = {
 const operatorTypes: OperatorInventoryBlockType[] = ['MAINTENANCE', 'CLEANING', 'OWNER_USE', 'MANUAL']
 const allTypes = Object.keys(typeLabels) as InventoryBlockType[]
 const allStatuses = Object.keys(statusLabels) as InventoryBlockStatus[]
+const bookingBlockTypes: InventoryBlockType[] = ['BOOKING', 'CHANNEL']
+const sectionCopy: Record<InventorySection, { eyebrow: string; title: string; description: string; countLabel: string }> = {
+  map: {
+    eyebrow: 'SƠ ĐỒ PHÒNG',
+    title: 'Sơ đồ booking',
+    description: 'Theo dõi tình trạng căn, block vận hành và thay đổi tồn phòng trong một timeline.',
+    countLabel: 'Block hiệu lực',
+  },
+  reservations: {
+    eyebrow: 'ĐẶT PHÒNG',
+    title: 'Đặt phòng',
+    description: 'Các booking và block từ kênh OTA trong khoảng ngày đang chọn.',
+    countLabel: 'Đặt phòng',
+  },
+  'check-in': {
+    eyebrow: 'CHECK-IN',
+    title: 'Check-in',
+    description: 'Các lượt khách bắt đầu lưu trú trong khoảng ngày đang chọn.',
+    countLabel: 'Lượt đến',
+  },
+  'check-out': {
+    eyebrow: 'CHECK-OUT',
+    title: 'Check out',
+    description: 'Các lượt khách kết thúc lưu trú trong khoảng ngày đang chọn.',
+    countLabel: 'Lượt đi',
+  },
+}
 
 function isoToday(): string {
   const now = new Date()
@@ -117,7 +147,7 @@ function initialPropertyId(): string {
     : ''
 }
 
-export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: InventoryWorkspaceProps) {
+export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, section }: InventoryWorkspaceProps) {
   const root = useRef<HTMLElement>(null)
   const today = useMemo(() => isoToday(), [])
   const [propertyId, setPropertyId] = useState(initialPropertyId)
@@ -136,6 +166,7 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
   const [notice, setNotice] = useState<string>()
   const canManage = viewer.permissions.includes('inventory:block')
   const initialProperty = useRef(propertyId)
+  const previousSection = useRef(section)
 
   const days = useMemo(() => {
     const length = Math.max(0, Math.min(31, dateDistance(fromDate, toDateExclusive)))
@@ -166,8 +197,8 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
           propertyId: normalizedId,
           fromDate,
           toDateExclusive,
-          types: selectedTypes,
-          statuses: selectedStatuses,
+          types: section === 'map' ? selectedTypes : bookingBlockTypes,
+          statuses: section === 'map' ? selectedStatuses : [],
           first: 100,
         }, signal),
         fetchPropertyAvailability(graphqlUrl, accessToken, normalizedId, fromDate, toDateExclusive, signal),
@@ -181,7 +212,7 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
       setStatus('error')
       setError(errorCopy(reason))
     }
-  }, [accessToken, fromDate, graphqlUrl, propertyId, selectedStatuses, selectedTypes, toDateExclusive])
+  }, [accessToken, fromDate, graphqlUrl, propertyId, section, selectedStatuses, selectedTypes, toDateExclusive])
 
   const initialLoad = useRef(load)
 
@@ -192,6 +223,14 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
     return () => controller.abort()
   }, [])
 
+  useEffect(() => {
+    if (previousSection.current === section || !initialProperty.current) return
+    previousSection.current = section
+    const controller = new AbortController()
+    queueMicrotask(() => void load(controller.signal))
+    return () => controller.abort()
+  }, [load, section])
+
   useGSAP(() => {
     if (status !== 'ready') return
     gsap.fromTo('.inventory-summary-card', { opacity: 0, y: 18 }, {
@@ -200,7 +239,10 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
     gsap.fromTo('.inventory-block-bar', { opacity: 0, scaleX: 0.84 }, {
       opacity: 1, scaleX: 1, duration: 0.58, stagger: 0.045, ease: 'power3.out', transformOrigin: 'left center',
     })
-  }, { scope: root, dependencies: [status, page?.inventoryRevision], revertOnUpdate: true })
+    gsap.fromTo('.booking-operation-row', { opacity: 0, y: 12 }, {
+      opacity: 1, y: 0, duration: 0.42, stagger: 0.045, ease: 'power2.out',
+    })
+  }, { scope: root, dependencies: [status, page?.inventoryRevision, section], revertOnUpdate: true })
 
   function shiftWindow(amount: number) {
     setFromDate((current) => addDays(current, amount))
@@ -275,16 +317,24 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
 
   const activeCount = page?.nodes.filter((node) => node.status === 'ACTIVE' || node.status === 'TENTATIVE').length ?? 0
   const operatorCount = page?.nodes.filter((node) => operatorTypes.includes(node.type as OperatorInventoryBlockType)).length ?? 0
+  const bookingBlocks = page?.nodes.filter((node) => bookingBlockTypes.includes(node.type)) ?? []
+  const sectionBlocks = bookingBlocks.filter((node) => {
+    if (section === 'reservations') return true
+    if (section === 'check-in') return node.startDate >= fromDate && node.startDate < toDateExclusive
+    if (section === 'check-out') return node.endDateExclusive > fromDate && node.endDateExclusive <= toDateExclusive
+    return false
+  })
+  const copy = sectionCopy[section]
 
   return (
     <section className="inventory-workspace" ref={root} aria-labelledby="inventory-title">
       <header className="inventory-heading">
         <div>
-          <p className="eyebrow">TỒN PHÒNG THEO CĂN</p>
-          <h2 id="inventory-title">Sơ đồ phòng rõ ràng, thao tác có kiểm soát.</h2>
-          <p>Quan sát revision hiện tại, rà block theo ngày và chỉ thay đổi khi quyền cùng phiên bản dữ liệu còn hợp lệ.</p>
+          <p className="eyebrow">{copy.eyebrow}</p>
+          <h2 id="inventory-title">{copy.title}</h2>
+          <p>{copy.description}</p>
         </div>
-        <div className="inventory-heading-actions">
+        <div className={`inventory-heading-actions${section !== 'map' ? ' summary-only' : ''}`}>
           <div className="inventory-heading-signal" aria-label="Tóm tắt lịch phòng">
             <div>
               <span>Đang bán</span>
@@ -299,9 +349,9 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
               <strong>{availability ? availability.overlaps.length : '—'}</strong>
             </div>
           </div>
-          <button className="inventory-create-button" disabled={!canManage || !page} onClick={() => setShowCreate(true)}>
+          {section === 'map' && <button className="inventory-create-button" disabled={!canManage || !page} onClick={() => setShowCreate(true)}>
             <Plus weight="bold" /> Tạo block
-          </button>
+          </button>}
         </div>
       </header>
 
@@ -322,7 +372,7 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
         </button>
       </section>
 
-      <details className="inventory-filter-panel">
+      {section === 'map' && <details className="inventory-filter-panel">
         <summary><Funnel /> Lọc loại và trạng thái <span>{selectedTypes.length + selectedStatuses.length || 'Tất cả'}</span></summary>
         <div>
           <fieldset><legend>Loại block</legend>{allTypes.map((type) => (
@@ -332,7 +382,7 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
             <button key={blockStatus} className={selectedStatuses.includes(blockStatus) ? 'selected' : ''} onClick={() => toggleStatus(blockStatus)}>{statusLabels[blockStatus]}</button>
           ))}</fieldset>
         </div>
-      </details>
+      </details>}
 
       {error && status === 'error' && (
         <div className="inventory-alert" role="alert">
@@ -358,14 +408,14 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
               <span>Revision tồn phòng</span><strong>{page.inventoryRevision}</strong><small><ArrowClockwise /> So khớp trước mọi lệnh ghi</small>
             </article>
             <article className="inventory-summary-card">
-              <span>Block hiệu lực</span><strong>{activeCount}</strong><small><DoorOpen /> {operatorCount} block vận hành trong kết quả</small>
+              <span>{copy.countLabel}</span><strong>{section === 'map' ? activeCount : sectionBlocks.length}</strong><small><DoorOpen /> {section === 'map' ? `${operatorCount} block vận hành trong kết quả` : `${bookingBlocks.length} booking trong dữ liệu hiện tại`}</small>
             </article>
             <article className="inventory-summary-card branch-card">
               <span>Chi nhánh đã xác minh</span><strong title={page.branchId}>{shortId(page.branchId)}</strong><small>Membership v{page.propertyMembershipVersion}</small>
             </article>
           </section>
 
-          <section className="inventory-board" aria-label="Timeline block tồn phòng">
+          {section === 'map' && <section className="inventory-board" aria-label="Timeline block tồn phòng">
             <div className="inventory-board-heading">
               <div><p className="eyebrow">TIMELINE</p><h3>Căn {shortId(propertyId.trim())}</h3></div>
               <div className="inventory-legend">
@@ -405,9 +455,9 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
               </div>
             </div>
             {page.pageInfo.hasNextPage && <p className="inventory-page-warning">Đang hiển thị 100 block mới nhất. Thu hẹp bộ lọc để xem phần còn lại.</p>}
-          </section>
+          </section>}
 
-          <section className="inventory-activity-strip" aria-label="Block cập nhật gần đây">
+          {section === 'map' && <section className="inventory-activity-strip" aria-label="Block cập nhật gần đây">
             <div><ClockCounterClockwise /><span>Hoạt động gần đây</span></div>
             <div className="inventory-activity-track">
               {page.nodes.slice(0, 6).map((node) => (
@@ -419,7 +469,18 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
               ))}
               {page.nodes.length === 0 && <span>Chưa có lịch sử block trong khoảng đã chọn.</span>}
             </div>
-          </section>
+          </section>}
+
+          {section !== 'map' && (
+            <BookingOperationList
+              section={section}
+              blocks={sectionBlocks}
+              propertyId={propertyId}
+              fromDate={fromDate}
+              toDateExclusive={toDateExclusive}
+              onSelect={(block) => { setSelectedBlock(block); setCommandError(undefined) }}
+            />
+          )}
         </>
       )}
 
@@ -446,6 +507,49 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
           onRelease={handleRelease}
         />
       )}
+    </section>
+  )
+}
+
+function BookingOperationList({ section, blocks, propertyId, fromDate, toDateExclusive, onSelect }: {
+  section: Exclude<InventorySection, 'map'>
+  blocks: InventoryBlockManagementNode[]
+  propertyId: string
+  fromDate: string
+  toDateExclusive: string
+  onSelect: (block: InventoryBlockManagementNode) => void
+}) {
+  const title = section === 'reservations' ? 'Đặt phòng trong khoảng'
+    : section === 'check-in' ? 'Lịch khách đến'
+      : 'Lịch khách rời đi'
+  const emptyCopy = section === 'reservations' ? 'Chưa có đặt phòng trong khoảng đang chọn.'
+    : section === 'check-in' ? 'Không có lượt check-in trong khoảng đang chọn.'
+      : 'Không có lượt check-out trong khoảng đang chọn.'
+
+  return (
+    <section className="booking-operations-board" aria-label={title}>
+      <header className="booking-operations-heading">
+        <div>
+          <span>{fromDate} — {toDateExclusive}</span>
+          <h3>{title}</h3>
+        </div>
+        <strong>{blocks.length}</strong>
+      </header>
+      <div className="booking-operation-table" role="table" aria-label={`${title} của căn ${propertyId}`}>
+        <div className="booking-operation-table-head" role="row">
+          <span>Mã tham chiếu</span><span>Khoảng lưu trú</span><span>Số đêm</span><span>Nguồn</span><span>Trạng thái</span>
+        </div>
+        {blocks.map((block) => (
+          <button className="booking-operation-row" type="button" role="row" key={block.inventoryBlockId} onClick={() => onSelect(block)}>
+            <span><strong>{shortId(block.inventoryBlockId)}</strong><small>Căn {shortId(propertyId.trim())}</small></span>
+            <span><strong>{block.startDate}</strong><small>đến {block.endDateExclusive}</small></span>
+            <span><strong>{Math.max(1, dateDistance(block.startDate, block.endDateExclusive))}</strong><small>đêm</small></span>
+            <span><strong>{block.type === 'CHANNEL' ? block.channelProvider || 'OTA' : 'Trực tiếp'}</strong><small>{typeLabels[block.type]}</small></span>
+            <span><i className={`booking-status status-${block.status.toLowerCase()}`}>{statusLabels[block.status]}</i><small>Xem chi tiết</small></span>
+          </button>
+        ))}
+        {blocks.length === 0 && <div className="booking-operation-empty"><CalendarBlank /><strong>{emptyCopy}</strong><span>Thử mở rộng khoảng ngày hoặc kiểm tra lại mã căn.</span></div>}
+      </div>
     </section>
   )
 }

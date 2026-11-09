@@ -26,7 +26,7 @@ import { AccountProvisioning } from './AccountProvisioning'
 import { SecuritySessions } from './SecuritySessions'
 import { PersonalProfileEditor } from './PersonalProfileEditor'
 import { AccountSecurityConsole } from './AccountSecurityConsole'
-import { InventoryWorkspace } from './InventoryWorkspace'
+import { InventoryWorkspace, type InventorySection } from './InventoryWorkspace'
 import { PropertyManagement } from './PropertyManagement'
 import { OverviewDashboard } from './OverviewDashboard'
 import { NotificationInbox } from './NotificationInbox'
@@ -101,7 +101,7 @@ function initials(name: string): string {
 type AdminPage = 'overview' | 'analytics' | 'inventory' | 'management' | 'profile' | 'notifications' | 'accounts' | 'authorization' | 'configuration' | 'templates' | 'preferences'
 
 const pageTitles: Record<AdminPage, { eyebrow: string; title: string }> = {
-  overview: { eyebrow: 'THÔNG TIN CHUNG', title: 'Toàn cảnh vận hành' },
+  overview: { eyebrow: 'TỔNG QUAN', title: 'Tổng quan' },
   analytics: { eyebrow: 'ANALYTICS CONTROL ROOM', title: 'Thống kê chuyên sâu' },
   inventory: { eyebrow: 'TRUNG TÂM VẬN HÀNH', title: 'Tồn phòng & sơ đồ căn' },
   management: { eyebrow: 'PROPERTY MASTER / UNIT CATALOG', title: 'Quản lý tòa và căn' },
@@ -127,6 +127,13 @@ const navigationItems = [
   { page: 'preferences', label: 'Kênh nhận', icon: SlidersHorizontal },
 ] as const
 
+const bookingSections: Array<{ value: InventorySection; label: string }> = [
+  { value: 'map', label: 'Sơ đồ' },
+  { value: 'reservations', label: 'Đặt phòng' },
+  { value: 'check-in', label: 'Check-in' },
+  { value: 'check-out', label: 'Check out' },
+]
+
 function pageFromHash(): AdminPage {
   const page = window.location.hash.replace(/^#/, '').split('?')[0] as AdminPage
   return page in pageTitles ? page : 'overview'
@@ -139,6 +146,7 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
   const displayName = profile.viewer?.displayName ?? auth.user?.profile.preferred_username ?? 'Backoffice'
   const [activePage, setActivePage] = useState<AdminPage>(pageFromHash)
   const [overviewSection, setOverviewSection] = useState<'system' | 'personal'>('system')
+  const [bookingSection, setBookingSection] = useState<InventorySection>('map')
   const [railExpanded, setRailExpanded] = useState(() => window.localStorage.getItem('vistay.admin.rail-expanded') === 'true')
 
   useEffect(() => {
@@ -162,7 +170,7 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
         <a
           className="rail-mark"
           href="#overview"
-          aria-label="Vistay - Chung"
+          aria-label="Vistay - Tổng quan"
           aria-current={activePage === 'overview' ? 'page' : undefined}
         >
           <span className="rail-logo-frame" aria-hidden="true">
@@ -202,11 +210,12 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
         <div className="rail-account"><button className="rail-avatar" aria-label={displayName}>{initials(displayName)}</button><span><strong>{displayName}</strong><small>{profile.viewer?.roles[0] ?? 'Backoffice'}</small></span></div>
       </aside>
 
-      <section className="workspace">
-        <header className={`topbar${activePage === 'overview' ? ' has-context' : ''}`}>
-          <div className="topbar-context" aria-label="Phạm vi trang Chung">
+      <section className={`workspace${activePage === 'overview' ? ' overview-workspace' : activePage === 'inventory' ? ' booking-workspace' : ''}`}>
+        <header className={`topbar${activePage === 'overview' || activePage === 'inventory' ? ' has-context' : ''}`}>
+          <div className="topbar-context" aria-label={activePage === 'inventory' ? 'Chế độ Booking' : 'Chế độ Tổng quan'}>
             {activePage === 'overview' && (
               <>
+                <span className="topbar-context-current" aria-current="page">Tổng quan</span>
                 <button
                   type="button"
                   className={overviewSection === 'system' ? 'active' : ''}
@@ -223,6 +232,23 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
                 >
                   Cá nhân
                 </button>
+              </>
+            )}
+            {activePage === 'inventory' && (
+              <>
+                <span className="topbar-context-current" aria-current="page">Booking</span>
+                {bookingSections.map((item) => (
+                  <button
+                    type="button"
+                    role="tab"
+                    className={bookingSection === item.value ? 'active' : ''}
+                    aria-selected={bookingSection === item.value}
+                    key={item.value}
+                    onClick={() => setBookingSection(item.value)}
+                  >
+                    {item.label}
+                  </button>
+                ))}
               </>
             )}
           </div>
@@ -256,10 +282,12 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
             </a>
           </div>
         </header>
-        <div className="page-heading">
-          <p className="eyebrow">{pageTitle.eyebrow}</p>
-          <h1>{pageTitle.title}</h1>
-        </div>
+        {activePage !== 'overview' && activePage !== 'inventory' && (
+          <div className="page-heading">
+            <p className="eyebrow">{pageTitle.eyebrow}</p>
+            <h1>{pageTitle.title}</h1>
+          </div>
+        )}
 
         {profile.status === 'loading' && (
           <section className="inline-state" aria-live="polite"><SpinnerGap className="spinner" />Đang tải hồ sơ từ Federation…</section>
@@ -278,7 +306,7 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
               {activePage === 'overview' && <OverviewDashboard graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} section={overviewSection} />}
             {activePage === 'analytics' && <AnalyticsDashboard graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} />}
             {activePage === 'inventory' && (
-              <InventoryWorkspace graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} />
+              <InventoryWorkspace graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} section={bookingSection} />
             )}
             {activePage === 'management' && <PropertyManagement />}
 
