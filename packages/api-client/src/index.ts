@@ -260,6 +260,53 @@ export interface PersonalProfile {
   replayed: boolean
 }
 
+export type UserDirectoryAccountType = 'CUSTOMER' | 'ADMIN' | 'HOST'
+
+export interface UserDirectoryEntry {
+  profileId: string
+  accountId: string | null
+  accountType: UserDirectoryAccountType
+  displayName: string
+  email: string | null
+  contactPhone: string | null
+  status: string
+  referenceCode: string | null
+  subtype: string | null
+  verificationStatus: string | null
+  joinedOn: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface UserDirectoryPage {
+  nodes: UserDirectoryEntry[]
+  totalCount: number
+  nextCursor: string | null
+}
+
+export interface ProfileLinkReview {
+  linkId: string
+  profileType: UserDirectoryAccountType
+  profileId: string
+  authAccountId: string
+  status: string
+  linkMethod: string
+  requestedAt: string
+  maskedRecipient: string | null
+  displayName: string | null
+}
+
+export interface ProfileAccountLink {
+  linkId: string | null
+  challengeId: string | null
+  profileType: UserDirectoryAccountType
+  status: string
+  maskedRecipient: string | null
+  expiresAt: string | null
+  requiresApproval: boolean
+  replayed: boolean
+}
+
 export interface ProvisionBackofficeAccountInput {
   email: string
   fullName: string
@@ -1260,6 +1307,121 @@ export async function updateMyProfile(
   return data.updateMyProfile
 }
 
+const USER_DIRECTORY_QUERY = `
+  query UserDirectory($accountType: AccountType!, $search: String, $first: Int!, $after: String) {
+    userDirectory(accountType: $accountType, search: $search, first: $first, after: $after) {
+      totalCount
+      nextCursor
+      nodes {
+        profileId
+        accountId
+        accountType
+        displayName
+        email
+        contactPhone
+        status
+        referenceCode
+        subtype
+        verificationStatus
+        joinedOn
+        createdAt
+        updatedAt
+      }
+    }
+  }
+`
+
+export async function fetchUserDirectory(
+  graphqlUrl: string,
+  accessToken: string,
+  input: { accountType: UserDirectoryAccountType; search?: string; first?: number; after?: string | null },
+  signal?: AbortSignal,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<UserDirectoryPage> {
+  const data = await graphqlRequest<{ userDirectory: UserDirectoryPage }>(
+    graphqlUrl,
+    accessToken,
+    'UserDirectory',
+    USER_DIRECTORY_QUERY,
+    {
+      accountType: input.accountType,
+      search: input.search?.trim() || null,
+      first: Math.min(Math.max(input.first ?? 25, 1), 100),
+      after: input.after ?? null,
+    },
+    signal,
+    fetcher,
+  )
+  return data.userDirectory
+}
+
+const PROFILE_LINK_REVIEWS_QUERY = `
+  query ProfileLinkReviews($profileType: AccountType, $status: String, $first: Int) {
+    profileLinkRequests(profileType: $profileType, status: $status, first: $first) {
+      linkId profileType profileId authAccountId status linkMethod
+      requestedAt maskedRecipient displayName
+    }
+  }
+`
+
+export async function fetchProfileLinkReviews(
+  graphqlUrl: string,
+  accessToken: string,
+  input: { profileType?: UserDirectoryAccountType; status?: string; first?: number } = {},
+  signal?: AbortSignal,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<ProfileLinkReview[]> {
+  const data = await graphqlRequest<{ profileLinkRequests: ProfileLinkReview[] }>(
+    graphqlUrl,
+    accessToken,
+    'ProfileLinkReviews',
+    PROFILE_LINK_REVIEWS_QUERY,
+    {
+      profileType: input.profileType ?? null,
+      status: input.status ?? 'APPROVAL_PENDING',
+      first: Math.min(Math.max(input.first ?? 50, 1), 100),
+    },
+    signal,
+    fetcher,
+  )
+  return data.profileLinkRequests
+}
+
+const REVIEW_PROFILE_LINK_MUTATION = `
+  mutation ReviewProfileLink($approve: Boolean!, $linkId: ID!, $reason: String!) {
+    approve: approveProfileLink(input: { linkId: $linkId, reason: $reason }) @include(if: $approve) {
+      linkId challengeId profileType status maskedRecipient expiresAt requiresApproval replayed
+    }
+    reject: rejectProfileLink(input: { linkId: $linkId, reason: $reason }) @skip(if: $approve) {
+      linkId challengeId profileType status maskedRecipient expiresAt requiresApproval replayed
+    }
+  }
+`
+
+export async function reviewProfileLink(
+  graphqlUrl: string,
+  accessToken: string,
+  input: { linkId: string; reason: string; decision: 'APPROVE' | 'REJECT' },
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<ProfileAccountLink> {
+  const data = await graphqlRequest<{ approve?: ProfileAccountLink; reject?: ProfileAccountLink }>(
+    graphqlUrl,
+    accessToken,
+    'ReviewProfileLink',
+    REVIEW_PROFILE_LINK_MUTATION,
+    {
+      approve: input.decision === 'APPROVE',
+      linkId: input.linkId,
+      reason: input.reason.trim(),
+    },
+    undefined,
+    fetcher,
+  )
+  const result = input.decision === 'APPROVE' ? data.approve : data.reject
+  if (!result) throw new Error('Profile link review returned no result')
+  return result
+}
+
 const AUTHORIZATION_WORKSPACE_QUERY = `
   query AuthorizationWorkspace($accountType: AccountType!, $accountId: ID!) {
     authorizationSubjectByAccount(accountType: $accountType, accountId: $accountId) {
@@ -2016,6 +2178,41 @@ export async function fetchDynamicConfigurationWorkspace(
     'DynamicConfigurationWorkspace', DYNAMIC_CONFIGURATION_WORKSPACE_QUERY, {}, undefined, fetcher)
 }
 
+export interface PropertyAdminWorkspace {
+  summary: {
+    activeProperties: number
+    maintenanceProperties: number
+    propertiesNeedingAttention: number
+  }
+  attributes: DynamicConfigurationWorkspace['propertyAttributes']
+}
+
+/** Shared admin contract used by web and mobile; this is not a mobile-specific API. */
+export async function fetchPropertyAdminWorkspace(
+  graphqlUrl: string,
+  accessToken: string,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<PropertyAdminWorkspace> {
+  const query = `query PropertyAdminWorkspace {
+    summary: propertyOperationalSummary {
+      activeProperties maintenanceProperties propertiesNeedingAttention
+    }
+    attributes: propertyAttributeCatalog(includeDrafts: true) {
+      id code label description groupCode dataType status visibility rowVersion version
+      requiredOnPublish filterable displayOrder unitLabel
+    }
+  }`
+  return graphqlRequest<PropertyAdminWorkspace>(
+    graphqlUrl,
+    accessToken,
+    'PropertyAdminWorkspace',
+    query,
+    {},
+    undefined,
+    fetcher,
+  )
+}
+
 export interface LoyaltyTierInput { code: string; displayName: string; minimumPoints: string; displayOrder: number }
 export interface LoyaltyEarningRuleInput { code: string; ruleType: string; points: string; amountBlock?: string; priority: number }
 export interface LoyaltyProgramChangeInput {
@@ -2026,7 +2223,7 @@ export interface LoyaltyProgramChangeInput {
 export interface PropertyAttributeDraftInput {
   code: string; label: string; description?: string; groupCode: string; dataType: string
   validation?: { minimum?: string; maximum?: string; minLength?: number; maxLength?: number; pattern?: string }
-  applicability?: { propertyTypes?: string[]; operatingModels?: string[] }; visibility: string
+  applicability?: { operatingModels?: string[] }; visibility: string
   requiredOnPublish: boolean; filterable: boolean; displayOrder: number; unitLabel?: string
   options?: Array<{ code: string; label: string; displayOrder: number }>; reason: string; idempotencyKey: string
 }

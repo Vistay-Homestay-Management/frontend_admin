@@ -11,6 +11,7 @@ import {
   fetchInventoryBlocks,
   fetchOverviewDashboard,
   fetchPropertyAvailability,
+  fetchUserDirectory,
   fetchViewer,
   isDurableCursor,
   mapNotificationReference,
@@ -133,6 +134,32 @@ describe('GraphQL client', () => {
       expectedVersion: 1,
       idempotencyKey: 'profile-key-1',
     }))
+  })
+
+  it('loads a paginated read-only user directory', async () => {
+    let requestBody = ''
+    const fetcher: typeof fetch = async (_input, init) => {
+      requestBody = String(init?.body)
+      return new Response(JSON.stringify({ data: { userDirectory: {
+        totalCount: 1,
+        nextCursor: null,
+        nodes: [{
+          profileId: 'profile-1', accountId: 'account-1', accountType: 'CUSTOMER',
+          displayName: 'Nguyễn An', email: 'an@example.com', contactPhone: '+84901234567',
+          status: 'ACTIVE', referenceCode: null, subtype: null, verificationStatus: null,
+          joinedOn: null, createdAt: '2026-11-01T00:00:00Z', updatedAt: '2026-11-02T00:00:00Z',
+        }],
+      } } }), { status: 200 })
+    }
+
+    const page = await fetchUserDirectory('/graphql', 'token', {
+      accountType: 'CUSTOMER', search: 'Nguyễn', first: 25,
+    }, undefined, fetcher)
+
+    const request = JSON.parse(requestBody)
+    expect(page.nodes[0]?.displayName).toBe('Nguyễn An')
+    expect(request.operationName).toBe('UserDirectory')
+    expect(request.variables).toEqual({ accountType: 'CUSTOMER', search: 'Nguyễn', first: 25, after: null })
   })
 
   it('loads the authorization subject, catalog, pending queue and audit trail', async () => {

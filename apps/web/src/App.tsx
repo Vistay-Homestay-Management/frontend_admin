@@ -14,6 +14,7 @@ import {
   SlidersHorizontal,
   SpinnerGap,
   UserCircle,
+  UsersThree,
   WarningCircle,
   WifiHigh,
 } from '@phosphor-icons/react'
@@ -28,6 +29,7 @@ import { PersonalProfileEditor } from './PersonalProfileEditor'
 import { AccountSecurityConsole } from './AccountSecurityConsole'
 import { InventoryWorkspace, type InventorySection } from './InventoryWorkspace'
 import { PropertyManagement } from './PropertyManagement'
+import { UserDirectoryWorkspace, type UserDirectorySection } from './UserDirectoryWorkspace'
 import { OverviewDashboard } from './OverviewDashboard'
 import { NotificationInbox } from './NotificationInbox'
 import { NotificationPreferences } from './NotificationPreferences'
@@ -98,17 +100,17 @@ function initials(name: string): string {
   return name.split(/\s+/).filter(Boolean).slice(-2).map((part) => part[0]).join('').toUpperCase()
 }
 
-type AdminPage = 'overview' | 'analytics' | 'inventory' | 'management' | 'profile' | 'notifications' | 'accounts' | 'authorization' | 'configuration' | 'templates' | 'preferences'
+type AdminPage = 'overview' | 'analytics' | 'inventory' | 'management' | 'users' | 'identity' | 'profile' | 'notifications' | 'configuration' | 'templates' | 'preferences'
 
 const pageTitles: Record<AdminPage, { eyebrow: string; title: string }> = {
   overview: { eyebrow: 'TỔNG QUAN', title: 'Tổng quan' },
   analytics: { eyebrow: 'ANALYTICS CONTROL ROOM', title: 'Thống kê chuyên sâu' },
   inventory: { eyebrow: 'TRUNG TÂM VẬN HÀNH', title: 'Tồn phòng & sơ đồ căn' },
   management: { eyebrow: 'PROPERTY MASTER / UNIT CATALOG', title: 'Quản lý tòa và căn' },
+  users: { eyebrow: 'DANH BẠ NGƯỜI DÙNG', title: 'Người dùng' },
+  identity: { eyebrow: 'IDENTITY & ACCESS', title: 'Tài khoản & phân quyền' },
   profile: { eyebrow: 'HỒ SƠ CÁ NHÂN', title: 'Phiên làm việc của bạn' },
   notifications: { eyebrow: 'DURABLE INBOX', title: 'Thông báo vận hành' },
-  accounts: { eyebrow: 'QUẢN TRỊ DANH TÍNH', title: 'Tài khoản Backoffice' },
-  authorization: { eyebrow: 'KIỂM SOÁT TRUY CẬP', title: 'Phân quyền ba lớp' },
   configuration: { eyebrow: 'POLICY CONTROL PLANE', title: 'Cấu hình nghiệp vụ động' },
   templates: { eyebrow: 'TEMPLATE CONTROL PLANE', title: 'Template thông báo' },
   preferences: { eyebrow: 'CHANNEL POLICY', title: 'Kênh nhận thông báo' },
@@ -117,11 +119,11 @@ const pageTitles: Record<AdminPage, { eyebrow: string; title: string }> = {
 const navigationItems = [
   { page: 'inventory', label: 'Booking', icon: CalendarDots },
   { page: 'management', label: 'Căn hộ', icon: Buildings },
+  { page: 'users', label: 'Người dùng', icon: UsersThree },
+  { page: 'identity', label: 'Tài khoản & phân quyền', icon: ShieldCheck },
   { page: 'analytics', label: 'Thống kê', icon: ChartBar },
   { page: 'profile', label: 'Hồ sơ của tôi', icon: UserCircle },
   { page: 'notifications', label: 'Thông báo', icon: Bell },
-  { page: 'accounts', label: 'Tài khoản', icon: Key },
-  { page: 'authorization', label: 'Phân quyền', icon: ShieldCheck },
   { page: 'configuration', label: 'Cấu hình động', icon: SlidersHorizontal },
   { page: 'templates', label: 'Template', icon: FileText },
   { page: 'preferences', label: 'Kênh nhận', icon: SlidersHorizontal },
@@ -134,9 +136,23 @@ const bookingSections: Array<{ value: InventorySection; label: string }> = [
   { value: 'check-out', label: 'Check out' },
 ]
 
+const userSections: Array<{ value: UserDirectorySection; label: string }> = [
+  { value: 'customers', label: 'Khách hàng' },
+  { value: 'staff', label: 'Nhân viên' },
+  { value: 'hosts', label: 'Chủ nhà' },
+]
+
+type IdentitySection = 'accounts' | 'authorization'
+
 function pageFromHash(): AdminPage {
-  const page = window.location.hash.replace(/^#/, '').split('?')[0] as AdminPage
+  const raw = window.location.hash.replace(/^#/, '').split('?')[0]
+  if (raw === 'accounts' || raw === 'authorization') return 'identity'
+  const page = raw as AdminPage
   return page in pageTitles ? page : 'overview'
+}
+
+function identitySectionFromHash(): IdentitySection {
+  return window.location.hash.replace(/^#/, '').split('?')[0] === 'authorization' ? 'authorization' : 'accounts'
 }
 
 function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: string }) {
@@ -147,10 +163,15 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
   const [activePage, setActivePage] = useState<AdminPage>(pageFromHash)
   const [overviewSection, setOverviewSection] = useState<'system' | 'personal'>('system')
   const [bookingSection, setBookingSection] = useState<InventorySection>('map')
+  const [userSection, setUserSection] = useState<UserDirectorySection>('customers')
+  const [identitySection, setIdentitySection] = useState<IdentitySection>(identitySectionFromHash)
   const [railExpanded, setRailExpanded] = useState(() => window.localStorage.getItem('vistay.admin.rail-expanded') === 'true')
 
   useEffect(() => {
-    const syncPage = () => setActivePage(pageFromHash())
+    const syncPage = () => {
+      setActivePage(pageFromHash())
+      setIdentitySection(identitySectionFromHash())
+    }
     window.addEventListener('hashchange', syncPage)
     if (!window.location.hash) window.history.replaceState(null, '', '#overview')
     return () => window.removeEventListener('hashchange', syncPage)
@@ -211,8 +232,8 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
       </aside>
 
       <section className={`workspace${activePage === 'overview' ? ' overview-workspace' : activePage === 'inventory' ? ' booking-workspace' : ''}`}>
-        <header className={`topbar${activePage === 'overview' || activePage === 'inventory' ? ' has-context' : ''}`}>
-          <div className="topbar-context" aria-label={activePage === 'inventory' ? 'Chế độ Booking' : 'Chế độ Tổng quan'}>
+        <header className={`topbar${['overview', 'inventory', 'management', 'users', 'identity'].includes(activePage) ? ' has-context' : ''}`}>
+          <div className="topbar-context" aria-label={`Chế độ ${pageTitles[activePage].title}`}>
             {activePage === 'overview' && (
               <>
                 <span className="topbar-context-current" aria-current="page">Tổng quan</span>
@@ -251,6 +272,24 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
                 ))}
               </>
             )}
+            {activePage === 'management' && (
+              <span className="topbar-context-current" aria-current="page">Căn hộ</span>
+            )}
+            {activePage === 'users' && (
+              <>
+                <span className="topbar-context-current" aria-current="page">Người dùng</span>
+                {userSections.map((item) => (
+                  <button type="button" role="tab" className={userSection === item.value ? 'active' : ''} aria-selected={userSection === item.value} key={item.value} onClick={() => setUserSection(item.value)}>{item.label}</button>
+                ))}
+              </>
+            )}
+            {activePage === 'identity' && (
+              <>
+                <span className="topbar-context-current" aria-current="page">Tài khoản & phân quyền</span>
+                <button type="button" role="tab" className={identitySection === 'accounts' ? 'active' : ''} aria-selected={identitySection === 'accounts'} onClick={() => setIdentitySection('accounts')}>Tài khoản</button>
+                <button type="button" role="tab" className={identitySection === 'authorization' ? 'active' : ''} aria-selected={identitySection === 'authorization'} onClick={() => setIdentitySection('authorization')}>Role & quyền</button>
+              </>
+            )}
           </div>
           <div className="topbar-actions">
             <span className="topbar-icon-button topbar-static-icon" role="img" aria-label="Vận hành">
@@ -282,7 +321,7 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
             </a>
           </div>
         </header>
-        {activePage !== 'overview' && activePage !== 'inventory' && (
+        {!['overview', 'inventory', 'management', 'users', 'identity'].includes(activePage) && (
           <div className="page-heading">
             <p className="eyebrow">{pageTitle.eyebrow}</p>
             <h1>{pageTitle.title}</h1>
@@ -309,6 +348,7 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
               <InventoryWorkspace graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} section={bookingSection} />
             )}
             {activePage === 'management' && <PropertyManagement />}
+            {activePage === 'users' && <UserDirectoryWorkspace graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} section={userSection} />}
 
             {activePage === 'profile' && <><section className="signal-grid" aria-label="Trạng thái phiên làm việc">
               <article>
@@ -353,7 +393,7 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
 
             {activePage === 'notifications' && <NotificationInbox model={inbox} />}
 
-            {activePage === 'accounts' && <><AccountProvisioning
+            {activePage === 'identity' && identitySection === 'accounts' && <><AccountProvisioning
               authApiUrl={config.authApiUrl}
               accessToken={accessToken}
               viewer={profile.viewer}
@@ -363,7 +403,7 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
               accessToken={accessToken}
               viewer={profile.viewer}
             /></>}
-            {activePage === 'authorization' && <AuthorizationConsole
+            {activePage === 'identity' && identitySection === 'authorization' && <AuthorizationConsole
               graphqlUrl={config.graphqlUrl}
               accessToken={accessToken}
               viewer={profile.viewer}
