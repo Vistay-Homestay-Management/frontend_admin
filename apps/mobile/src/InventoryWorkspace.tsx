@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import * as Crypto from 'expo-crypto'
 import {
   ActivityIndicator,
-  AppState,
   Modal,
   Pressable,
   ScrollView,
@@ -17,7 +16,6 @@ import {
   fetchInventoryBlocks,
   fetchPropertyAvailability,
   releaseInventoryBlock,
-  type BackofficeViewer,
   type InventoryBlockManagementNode,
   type InventoryBlockManagementPage,
   type InventoryBlockStatus,
@@ -26,14 +24,69 @@ import {
   type PropertyAvailabilityObservation,
 } from '@vistay/admin-api-client'
 
-interface InventoryWorkspaceProps {
-  graphqlUrl: string
-  accessToken: string
-  viewer: BackofficeViewer
-}
+import type { MobileWorkspaceProps } from './mobileRuntime'
 
 type LoadStatus = 'idle' | 'loading' | 'ready' | 'error'
 type ErrorCopy = { title: string; detail: string; code?: string }
+export type InventorySessionGuard = { pending?: boolean; unknownOutcome?: boolean }
+export type InventoryWorkspaceProps = MobileWorkspaceProps & {
+  sessionGuard?: InventorySessionGuard
+  onPendingChange?: (pending: boolean) => void
+  onUnknownOutcome?: () => void
+}
+
+type SessionSnapshot = { pending: boolean; unknownOutcome: boolean }
+const EMPTY_SESSION_GUARD: SessionSnapshot = { pending: false, unknownOutcome: false }
+const sessionGuards = new Map<string, SessionSnapshot>()
+const inFlightTokens = new Map<string, number>()
+const guardListeners = new Set<() => void>()
+let nextGuardToken = 0
+
+function emitGuardChange() {
+  for (const listener of guardListeners) listener()
+}
+
+function subscribeSessionGuards(listener: () => void) {
+  guardListeners.add(listener)
+  return () => { guardListeners.delete(listener) }
+}
+
+function getAccountSessionGuard(accountId: string): SessionSnapshot {
+  return sessionGuards.get(accountId) ?? EMPTY_SESSION_GUARD
+}
+
+function startAccountPending(accountId: string): number {
+  const token = ++nextGuardToken
+  inFlightTokens.set(accountId, token)
+  const previous = getAccountSessionGuard(accountId)
+  if (!previous.pending) sessionGuards.set(accountId, { pending: true, unknownOutcome: previous.unknownOutcome })
+  emitGuardChange()
+  return token
+}
+
+function finishAccountPending(accountId: string, token: number) {
+  if (inFlightTokens.get(accountId) !== token) return
+  inFlightTokens.delete(accountId)
+  const previous = getAccountSessionGuard(accountId)
+  if (previous.unknownOutcome) {
+    sessionGuards.set(accountId, { pending: false, unknownOutcome: true })
+  } else {
+    sessionGuards.delete(accountId)
+  }
+  emitGuardChange()
+}
+
+function lockAccountUnknownOutcome(accountId: string) {
+  const previous = getAccountSessionGuard(accountId)
+  if (!previous.unknownOutcome) sessionGuards.set(accountId, { pending: previous.pending, unknownOutcome: true })
+  emitGuardChange()
+}
+
+export function resetInventorySessionGuards() {
+  sessionGuards.clear()
+  inFlightTokens.clear()
+  emitGuardChange()
+}
 
 const LOCAL_MANAGEMENT_PROPERTY = '61000000-0000-4000-8000-000000000010'
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
@@ -90,14 +143,19 @@ function toErrorCopy(error: unknown): ErrorCopy {
   }
   return {
     title: code && titles[code] ? titles[code] : 'Không thể hoàn tất yêu cầu',
-    detail: error instanceof Error ? error.message : 'Đã có lỗi không xác định.',
-    code,
+    detail: 'Hãy làm mới dữ liệu và kiểm tra quyền hoặc kết nối trước khi thử lại.',
+    code: code && titles[code] ? code : undefined,
   }
 }
 
 function validateWindow(propertyId: string, fromDate: string, toDateExclusive: string): ErrorCopy | undefined {
   if (!UUID_PATTERN.test(propertyId.trim().toLowerCase())) {
     return { title: 'Mã căn chưa hợp lệ', detail: 'Hãy nhập UUID của căn lưu trú.' }
+  }
+  if (![fromDate, toDateExclusive].every((value) => /^\d{4}-\d{2}-\d{2}$/.test(value)
+    && Number.isFinite(Date.parse(`${value}T00:00:00Z`))
+    && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value)) {
+    return { title: 'Ngày chưa hợp lệ', detail: 'Nhập ngày có thật theo YYYY-MM-DD.' }
   }
   const days = dateDistance(fromDate, toDateExclusive)
   if (!Number.isFinite(days) || days < 1 || days > 31) {
@@ -158,7 +216,7 @@ function BlockCard({ block, onPress }: { block: InventoryBlockManagementNode; on
   )
 }
 
-export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: InventoryWorkspaceProps) {
+export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, runtime, sessionGuard, onPendingChange, onUnknownOutcome }: InventoryWorkspaceProps) {
   const today = useMemo(() => isoToday(), [])
   const [propertyId, setPropertyId] = useState(LOCAL_MANAGEMENT_PROPERTY)
   const [fromDate, setFromDate] = useState(today)
@@ -177,10 +235,42 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
   const [releaseReason, setReleaseReason] = useState('')
   const [commandStatus, setCommandStatus] = useState<'idle' | 'loading'>('idle')
   const [commandError, setCommandError] = useState<ErrorCopy>()
+  const storeGuard = useSyncExternalStore(
+    subscribeSessionGuards,
+    useCallback(() => getAccountSessionGuard(viewer.accountId), [viewer.accountId]),
+  )
+  const effectivePending = Boolean(sessionGuard?.pending || storeGuard.pending)
+  const effectiveUnknownOutcome = Boolean(sessionGuard?.unknownOutcome || storeGuard.unknownOutcome)
   const mounted = useRef(true)
+  const pending = useRef(false)
+  const currentPending = useRef(effectivePending)
+  const currentUnknownOutcome = useRef(effectiveUnknownOutcome)
+  const generation = useRef(0)
+  const controller = useRef<AbortController | undefined>(undefined)
+  const [observationKey, setObservationKey] = useState<string>()
+  const principalKey = JSON.stringify([graphqlUrl, accessToken, viewer.accountId, viewer.authorizationVersion, viewer.permissions])
+  const contextKey = JSON.stringify([principalKey, propertyId.trim().toLowerCase(), fromDate, toDateExclusive,
+    runtime.isOnline, runtime.isActive, runtime.refreshEpoch])
+  const currentContext = useRef(contextKey)
+  const currentPrincipal = useRef(principalKey)
+  const formKey = JSON.stringify([createOpen, createType, createFrom, createTo, createReason, selectedBlock?.inventoryBlockId, releaseReason])
+  const currentForm = useRef(formKey)
+  const ready = runtime.isOnline && runtime.isActive && status === 'ready' && observationKey === contextKey
+  const writeReady = ready && viewer.permissions.includes('inventory:block') && !effectiveUnknownOutcome && !effectivePending
+  const currentWriteReady = useRef(writeReady)
+  const previousPrincipal = useRef(principalKey)
+  const loadLatest = useRef<() => Promise<InventoryBlockManagementPage | undefined>>(async () => undefined)
   const canManage = viewer.permissions.includes('inventory:block')
+  const isBusy = effectivePending || commandStatus === 'loading'
 
   const load = useCallback(async (quiet = false): Promise<InventoryBlockManagementPage | undefined> => {
+    if (currentContext.current !== contextKey || !runtime.isOnline || !runtime.isActive) return undefined
+    const request = ++generation.current
+    controller.current?.abort()
+    const abort = new AbortController()
+    controller.current = abort
+    setObservationKey(undefined)
+    currentWriteReady.current = false
     const normalizedId = propertyId.trim().toLowerCase()
     const validation = validateWindow(normalizedId, fromDate, toDateExclusive)
     if (validation) {
@@ -197,42 +287,68 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
           fromDate,
           toDateExclusive,
           first: 100,
-        }),
-        fetchPropertyAvailability(graphqlUrl, accessToken, normalizedId, fromDate, toDateExclusive),
+        }, abort.signal),
+        fetchPropertyAvailability(graphqlUrl, accessToken, normalizedId, fromDate, toDateExclusive, abort.signal),
       ])
       if (nextPage.inventoryRevision !== observation.inventoryRevision
         || nextPage.branchId !== observation.branchId
-        || nextPage.propertyMembershipVersion !== observation.propertyMembershipVersion) {
+        || nextPage.propertyMembershipVersion !== observation.propertyMembershipVersion
+        || observation.propertyId !== normalizedId || observation.checkInDate !== fromDate
+        || observation.checkOutDate !== toDateExclusive
+        || nextPage.nodes.some((node) => node.propertyId !== normalizedId)) {
         throw new Error('Hai phép đọc không cùng revision hoặc phân vùng. Hãy làm mới trước khi thao tác.')
       }
-      if (!mounted.current) return undefined
+      if (!mounted.current || request !== generation.current || currentContext.current !== contextKey) return undefined
+      setObservationKey(contextKey)
       setPage(nextPage)
       setAvailability(observation)
       setSelectedBlock((current) => nextPage.nodes.find((node) => node.inventoryBlockId === current?.inventoryBlockId))
       setStatus('ready')
       return nextPage
     } catch (reason) {
-      if (!mounted.current) return undefined
+      if (!mounted.current || request !== generation.current || currentContext.current !== contextKey) return undefined
       setError(toErrorCopy(reason))
       setStatus('error')
       return undefined
     }
-  }, [accessToken, fromDate, graphqlUrl, propertyId, toDateExclusive])
-
-  const initialLoad = useRef(load)
+  }, [accessToken, fromDate, graphqlUrl, propertyId, toDateExclusive, contextKey, runtime.isOnline, runtime.isActive])
+  useLayoutEffect(() => {
+    currentContext.current = contextKey
+    currentPrincipal.current = principalKey
+    currentForm.current = formKey
+    currentWriteReady.current = writeReady
+    currentPending.current = effectivePending
+    currentUnknownOutcome.current = effectiveUnknownOutcome
+    loadLatest.current = () => load()
+  }, [contextKey, principalKey, formKey, writeReady, effectivePending, effectiveUnknownOutcome, load])
 
   useEffect(() => {
     mounted.current = true
-    queueMicrotask(() => void initialLoad.current())
-    return () => { mounted.current = false }
+    return () => { mounted.current = false; controller.current?.abort() }
   }, [])
 
   useEffect(() => {
-    const subscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active' && page) void load(true)
+    generation.current++
+    controller.current?.abort()
+    let cancelled = false
+    queueMicrotask(() => {
+    if (cancelled) return
+    setObservationKey(undefined)
+    setNotice(undefined)
+    setCommandError(undefined)
+    if (previousPrincipal.current !== principalKey) {
+      previousPrincipal.current = principalKey
+      setPage(undefined)
+      setAvailability(undefined)
+      setSelectedBlock(undefined)
+      setCreateOpen(false)
+      setCreateReason('')
+      setReleaseReason('')
+    }
+    if (runtime.isOnline && runtime.isActive) void loadLatest.current()
     })
-    return () => subscription.remove()
-  }, [load, page])
+    return () => { cancelled = true }
+  }, [principalKey, runtime.isOnline, runtime.isActive, runtime.refreshEpoch])
 
   async function refreshBeforeCommand(): Promise<InventoryBlockManagementPage | undefined> {
     setNotice('Đang xác minh revision mới nhất trước khi ghi…')
@@ -241,80 +357,120 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
     return freshPage
   }
 
+  async function executeGuardedCommand<T extends { commandId: string; inventoryRevision: string }>(
+    prepare: (freshPage: InventoryBlockManagementPage) => boolean,
+    send: (freshPage: InventoryBlockManagementPage, correlationId: string) => Promise<T>,
+    onSuccess: (result: T) => void,
+    successText: (result: T) => string,
+  ) {
+    if (pending.current || currentPending.current || currentUnknownOutcome.current || !currentWriteReady.current || currentContext.current !== contextKey) return
+    pending.current = true
+    const intentAccountId = viewer.accountId
+    const intentPrincipal = principalKey
+    const intentForm = formKey
+    const guardToken = startAccountPending(intentAccountId)
+    onPendingChange?.(true)
+    let dispatched = false
+    setCommandStatus('loading')
+    setCommandError(undefined)
+    try {
+      const freshPage = await refreshBeforeCommand()
+      if (!freshPage) return
+      if (currentContext.current !== contextKey || currentPrincipal.current !== intentPrincipal || currentForm.current !== intentForm || !mounted.current) return
+      if (!prepare(freshPage)) return
+      const correlationId = Crypto.randomUUID()
+      dispatched = true
+      const result = await send(freshPage, correlationId)
+      if (currentPrincipal.current !== intentPrincipal) return
+      if (!mounted.current) return
+      onSuccess(result)
+      setNotice(successText(result))
+      if (currentContext.current === contextKey) {
+        const refreshed = await load(true)
+        if (!refreshed && mounted.current && currentContext.current === contextKey) {
+          setNotice(`Đã ghi nhận lệnh ${result.commandId}; dữ liệu chưa đồng bộ. Hãy làm mới, không gửi lại lệnh.`)
+        }
+      }
+    } catch (reason) {
+      if (currentPrincipal.current !== intentPrincipal) return
+      if (dispatched && (!(reason instanceof ApiError) || !reason.code)) {
+        lockAccountUnknownOutcome(intentAccountId)
+        onUnknownOutcome?.()
+        if (mounted.current) {
+          setObservationKey(undefined)
+          setCommandError({ title: 'Chưa xác định kết quả lệnh', detail: 'Không gửi lại. Hãy đối chiếu lịch sử và liên hệ vận hành để xác minh lệnh.' })
+        }
+        return
+      }
+      if (!mounted.current || currentContext.current !== contextKey) return
+      const copy = toErrorCopy(reason)
+      setObservationKey(undefined)
+      setCommandError(copy)
+      setNotice(undefined)
+      if (copy.code === 'STALE_INVENTORY_REVISION' || copy.code === 'INVENTORY_BLOCK_CONFLICT') await load(true)
+    } finally {
+      pending.current = false
+      finishAccountPending(intentAccountId, guardToken)
+      onPendingChange?.(false)
+      if (mounted.current) setCommandStatus('idle')
+    }
+  }
+
   async function handleCreate() {
+    if (pending.current || currentPending.current || currentUnknownOutcome.current || !currentWriteReady.current || currentContext.current !== contextKey) return
     const reasonError = validateReason(createReason)
     const windowError = validateWindow(propertyId, createFrom, createTo)
     if (reasonError || windowError) {
       setCommandError(windowError ?? { title: 'Lý do chưa hợp lệ', detail: reasonError! })
       return
     }
-    setCommandStatus('loading')
-    setCommandError(undefined)
-    try {
-      const freshPage = await refreshBeforeCommand()
-      if (!freshPage) return
-      const correlationId = Crypto.randomUUID()
-      await createInventoryBlock(graphqlUrl, accessToken, {
+    await executeGuardedCommand(
+      () => true,
+      (freshPage, correlationId) => createInventoryBlock(graphqlUrl, accessToken, {
         propertyId: propertyId.trim().toLowerCase(),
         blockType: createType,
         startDate: createFrom,
         endDateExclusive: createTo,
-        expectedInventoryRevision: freshPage.inventoryRevision,
         reason: createReason.trim(),
+        expectedInventoryRevision: freshPage.inventoryRevision,
         correlationId,
         idempotencyKey: `admin-mobile-create-${correlationId}`,
-      })
-      setCreateOpen(false)
-      setCreateReason('')
-      setNotice('Đã tạo block và ghi nhận audit.')
-      await load(true)
-    } catch (reason) {
-      const copy = toErrorCopy(reason)
-      setCommandError(copy)
-      setNotice(undefined)
-      if (copy.code === 'STALE_INVENTORY_REVISION' || copy.code === 'INVENTORY_BLOCK_CONFLICT') await load(true)
-    } finally {
-      setCommandStatus('idle')
-    }
+      }),
+      () => { setCreateOpen(false); setCreateReason('') },
+      (result) => `Đã ghi nhận lệnh ${result.commandId} · Revision ${result.inventoryRevision}.`,
+    )
   }
 
   async function handleRelease() {
+    if (pending.current || currentPending.current || currentUnknownOutcome.current || !currentWriteReady.current || currentContext.current !== contextKey) return
     if (!selectedBlock || !canRelease(selectedBlock)) return
     const reasonError = validateReason(releaseReason)
     if (reasonError) {
       setCommandError({ title: 'Lý do chưa hợp lệ', detail: reasonError })
       return
     }
-    setCommandStatus('loading')
-    setCommandError(undefined)
-    try {
-      const freshPage = await refreshBeforeCommand()
-      const freshBlock = freshPage?.nodes.find((node) => node.inventoryBlockId === selectedBlock.inventoryBlockId)
-      if (!freshPage || !freshBlock || !canRelease(freshBlock)) {
-        setCommandError({ title: 'Block không còn khả dụng', detail: 'Dữ liệu đã đổi. Danh sách vừa được làm mới.' })
-        return
-      }
-      const correlationId = Crypto.randomUUID()
-      await releaseInventoryBlock(graphqlUrl, accessToken, {
+    const targetBlockId = selectedBlock.inventoryBlockId
+    let resolvedBlock: InventoryBlockManagementNode | undefined
+    await executeGuardedCommand(
+      (freshPage) => {
+        resolvedBlock = freshPage.nodes.find((node) => node.inventoryBlockId === targetBlockId)
+        if (!resolvedBlock || !canRelease(resolvedBlock)) {
+          setCommandError({ title: 'Block không còn khả dụng', detail: 'Dữ liệu đã đổi. Danh sách vừa được làm mới.' })
+          return false
+        }
+        return true
+      },
+      (freshPage, correlationId) => releaseInventoryBlock(graphqlUrl, accessToken, {
         propertyId: propertyId.trim().toLowerCase(),
-        inventoryBlockId: freshBlock.inventoryBlockId,
+        inventoryBlockId: resolvedBlock!.inventoryBlockId,
         expectedInventoryRevision: freshPage.inventoryRevision,
         reason: releaseReason.trim(),
         correlationId,
         idempotencyKey: `admin-mobile-release-${correlationId}`,
-      })
-      setSelectedBlock(undefined)
-      setReleaseReason('')
-      setNotice('Đã giải phóng block; lịch sử vẫn được giữ nguyên.')
-      await load(true)
-    } catch (reason) {
-      const copy = toErrorCopy(reason)
-      setCommandError(copy)
-      setNotice(undefined)
-      if (copy.code === 'STALE_INVENTORY_REVISION' || copy.code === 'INVENTORY_BLOCK_CONFLICT') await load(true)
-    } finally {
-      setCommandStatus('idle')
-    }
+      }),
+      () => { setSelectedBlock(undefined); setReleaseReason('') },
+      (result) => `Đã giải phóng theo lệnh ${result.commandId} · Revision ${result.inventoryRevision}.`,
+    )
   }
 
   const active = page?.nodes.filter((node) => node.status === 'ACTIVE' || node.status === 'TENTATIVE') ?? []
@@ -329,9 +485,10 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
         </View>
         <Pressable
           accessibilityRole="button"
-          disabled={!canManage || !page}
-          onPress={() => { setCreateOpen(true); setCommandError(undefined) }}
-          style={({ pressed }) => [styles.createButton, (!canManage || !page) && styles.disabled, pressed && styles.pressed]}
+          accessibilityState={{ disabled: !writeReady || isBusy, busy: isBusy }}
+          disabled={!writeReady || isBusy}
+          onPress={() => { if (writeReady && !pending.current && !effectivePending && !effectiveUnknownOutcome) { setCreateOpen(true); setCommandError(undefined) } }}
+          style={({ pressed }) => [styles.createButton, (!writeReady || isBusy) && styles.disabled, pressed && styles.pressed]}
         >
           <Text style={styles.createButtonText}>Tạo block</Text>
         </Pressable>
@@ -343,12 +500,19 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
           <View style={styles.dateField}><Field label="Từ ngày" value={fromDate} onChangeText={setFromDate} placeholder="YYYY-MM-DD" /></View>
           <View style={styles.dateField}><Field label="Đến trước ngày" value={toDateExclusive} onChangeText={setToDateExclusive} placeholder="YYYY-MM-DD" /></View>
         </View>
-        <Pressable accessibilityRole="button" onPress={() => void load()} style={({ pressed }) => [styles.applyButton, pressed && styles.pressed]}>
+        <Pressable accessibilityRole="button" accessibilityState={{ disabled: status === 'loading', busy: status === 'loading' }} disabled={status === 'loading'} onPress={() => void load()} style={({ pressed }) => [styles.applyButton, pressed && styles.pressed]}>
           {status === 'loading' ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.applyButtonText}>Áp dụng và làm mới</Text>}
         </Pressable>
       </View>
 
+      {effectiveUnknownOutcome && (
+        <View accessibilityRole="alert" style={styles.errorCard}>
+          <Text style={styles.errorTitle}>Chưa xác định kết quả lệnh</Text>
+          <Text style={styles.errorDetail}>Không gửi lại. Hãy đối chiếu lịch sử và liên hệ vận hành để xác minh lệnh.</Text>
+        </View>
+      )}
       {notice && <Text accessibilityRole="alert" style={styles.notice}>{notice}</Text>}
+      {!ready && page && <Text accessibilityRole="alert" style={styles.notice}>Dữ liệu cũ — chỉ xem. Áp dụng bộ lọc và làm mới khi có mạng, ứng dụng đang hoạt động.</Text>}
       {error && status === 'error' && (
         <View style={styles.errorCard}>
           <Text style={styles.errorTitle}>{error.title}</Text>
@@ -368,7 +532,7 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
               <Text style={styles.summaryNote}>{availability?.overlaps.length ?? 0} khoảng giao nhau</Text>
             </View>
             <View style={styles.summaryCard}>
-              <Text style={styles.summaryLabel}>BLOCK HIỆU LỰC</Text>
+              <Text style={styles.summaryLabel}>BLOCK HIỆU LỰC ĐÃ TẢI</Text>
               <Text style={styles.summaryNumber}>{active.length}</Text>
               <Text style={styles.summaryNote}>Revision {page.inventoryRevision}</Text>
             </View>
@@ -401,7 +565,7 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
           <View style={styles.dateRow}><View style={styles.dateField}><Field label="Bắt đầu" value={createFrom} onChangeText={setCreateFrom} placeholder="YYYY-MM-DD" /></View><View style={styles.dateField}><Field label="Kết thúc exclusive" value={createTo} onChangeText={setCreateTo} placeholder="YYYY-MM-DD" /></View></View>
           <Field label="Lý do (10–1000 ký tự)" value={createReason} onChangeText={setCreateReason} multiline />
           {commandError && <View style={styles.inlineError}><Text style={styles.errorTitle}>{commandError.title}</Text><Text style={styles.errorDetail}>{commandError.detail}</Text></View>}
-          <Pressable disabled={commandStatus === 'loading'} onPress={() => void handleCreate()} style={[styles.confirmButton, commandStatus === 'loading' && styles.disabled]}>{commandStatus === 'loading' ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.confirmText}>Xác nhận tạo block</Text>}</Pressable>
+          <Pressable accessibilityRole="button" accessibilityState={{ disabled: !writeReady || isBusy, busy: isBusy }} disabled={!writeReady || isBusy} onPress={() => void handleCreate()} style={[styles.confirmButton, (!writeReady || isBusy) && styles.disabled]}>{isBusy ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.confirmText}>Xác nhận tạo block</Text>}</Pressable>
         </ScrollView></View>
       </Modal>
 
@@ -420,7 +584,7 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
             {canManage && canRelease(selectedBlock) ? <>
               <Field label="Lý do release (10–1000 ký tự)" value={releaseReason} onChangeText={setReleaseReason} multiline />
               {commandError && <View style={styles.inlineError}><Text style={styles.errorTitle}>{commandError.title}</Text><Text style={styles.errorDetail}>{commandError.detail}</Text></View>}
-              <Pressable disabled={commandStatus === 'loading'} onPress={() => void handleRelease()} style={[styles.releaseButton, commandStatus === 'loading' && styles.disabled]}>{commandStatus === 'loading' ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.confirmText}>Xác nhận giải phóng</Text>}</Pressable>
+              <Pressable accessibilityRole="button" accessibilityState={{ disabled: !writeReady || isBusy, busy: isBusy }} disabled={!writeReady || isBusy} onPress={() => void handleRelease()} style={[styles.releaseButton, (!writeReady || isBusy) && styles.disabled]}>{isBusy ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.confirmText}>Xác nhận giải phóng</Text>}</Pressable>
             </> : <Text style={styles.readOnly}>Block từ booking/kênh hoặc trạng thái kết thúc chỉ được xem tại đây.</Text>}
           </>}
         </ScrollView></View>
