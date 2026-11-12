@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
+    "@react-native-community/netinfo": "12.0.1",
     "@vistay/admin-api-client": "*",
     "expo": "~58.0.17",
     "expo-auth-session": "~58.0.14",

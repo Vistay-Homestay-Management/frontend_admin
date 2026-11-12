@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import * as WebBrowser from 'expo-web-browser'
 import { StatusBar } from 'expo-status-bar'
 import {
@@ -19,9 +19,10 @@ import { AccountProvisioning } from './src/AccountProvisioning'
 import { SecuritySessions } from './src/SecuritySessions'
 import { PersonalProfileEditor } from './src/PersonalProfileEditor'
 import { AccountSecurityConsole } from './src/AccountSecurityConsole'
-import { InventoryWorkspace } from './src/InventoryWorkspace'
+import { InventoryWorkspace, resetInventorySessionGuards, type InventorySessionGuard } from './src/InventoryWorkspace'
 import { NotificationInbox } from './src/NotificationInbox'
 import { NotificationPreferences } from './src/NotificationPreferences'
+import { useMobileRuntime } from './src/useMobileRuntime'
 
 WebBrowser.maybeCompleteAuthSession()
 
@@ -110,10 +111,18 @@ function BackofficeScreen({ config, accessToken, onLogout }: {
   accessToken: string
   onLogout: () => void
 }) {
-  const profile = useViewer(config.graphqlUrl, accessToken)
+  const mobileRuntime = useMobileRuntime()
+  const profile = useViewer(config.graphqlUrl, accessToken, mobileRuntime.refreshEpoch)
   const inbox = useNotificationInbox(config.graphqlUrl, accessToken, profile.viewer?.accountId ?? '')
   const stream = inbox
   const [section, setSection] = useState<'overview' | 'inventory' | 'accounts' | 'authorization' | 'preferences'>('overview')
+  const [inventoryGuards, setInventoryGuards] = useState<Record<string, InventorySessionGuard>>({})
+  const activeAccountId = profile.viewer?.accountId
+  useEffect(() => () => resetInventorySessionGuards(), [])
+  function handleLogout() {
+    resetInventorySessionGuards()
+    onLogout()
+  }
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -124,7 +133,7 @@ function BackofficeScreen({ config, accessToken, onLogout }: {
             <Text style={styles.eyebrow}>TRUNG TÂM VẬN HÀNH</Text>
             <Text style={styles.title}>Xin chào,{`\n`}{profile.viewer?.displayName ?? 'Backoffice'}.</Text>
           </View>
-          <Pressable accessibilityRole="button" onPress={onLogout} style={styles.logout}><Text style={styles.logoutText}>Thoát</Text></Pressable>
+          <Pressable accessibilityRole="button" onPress={handleLogout} style={styles.logout}><Text style={styles.logoutText}>Thoát</Text></Pressable>
         </View>
 
         {profile.status === 'loading' && <View style={styles.inlineState}><ActivityIndicator color="#17231d" /><Text>Đang tải hồ sơ từ Federation…</Text></View>}
@@ -135,7 +144,7 @@ function BackofficeScreen({ config, accessToken, onLogout }: {
           </View>
         )}
 
-        {profile.viewer && (
+        {profile.status === 'ready' && profile.viewer && (
           <>
             <View accessibilityRole="tablist" style={styles.tabs}>
               <Pressable
@@ -201,13 +210,34 @@ function BackofficeScreen({ config, accessToken, onLogout }: {
               authApiUrl={config.authApiUrl}
               accessToken={accessToken}
               viewer={profile.viewer}
-              onCurrentRevoked={onLogout}
+              onCurrentRevoked={handleLogout}
             />
 
             <NotificationInbox model={inbox} />
               </>
             ) : section === 'inventory' ? (
-              <InventoryWorkspace graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} />
+              <InventoryWorkspace
+                key={`${profile.viewer.accountId}:${profile.viewer.authorizationVersion}`}
+                graphqlUrl={config.graphqlUrl}
+                accessToken={accessToken}
+                viewer={profile.viewer}
+                runtime={mobileRuntime}
+                sessionGuard={activeAccountId ? inventoryGuards[activeAccountId] : undefined}
+                onPendingChange={(isPending) => {
+                  if (!activeAccountId) return
+                  setInventoryGuards((current) => ({
+                    ...current,
+                    [activeAccountId]: { ...current[activeAccountId], pending: isPending },
+                  }))
+                }}
+                onUnknownOutcome={() => {
+                  if (!activeAccountId) return
+                  setInventoryGuards((current) => ({
+                    ...current,
+                    [activeAccountId]: { ...current[activeAccountId], unknownOutcome: true },
+                  }))
+                }}
+              />
             ) : section === 'accounts' ? (
               <>
                 <AccountProvisioning authApiUrl={config.authApiUrl} accessToken={accessToken} viewer={profile.viewer} />

@@ -24,33 +24,46 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : 'Đã có lỗi không xác định'
 }
 
-export function useViewer(graphqlUrl: string, accessToken: string) {
-  const [viewer, setViewer] = useState<BackofficeViewer>()
-  const [status, setStatus] = useState<LoadStatus>('loading')
-  const [error, setError] = useState<string>()
+export function useViewer(graphqlUrl: string, accessToken: string, refreshEpoch = 0) {
+  const [result, setResult] = useState<{
+    principalKey: string
+    requestKey: string
+    viewer?: BackofficeViewer
+    status: LoadStatus
+    error?: string
+  }>()
   const [attempt, setAttempt] = useState(0)
-  const retry = useCallback(() => {
-    setStatus('loading')
-    setError(undefined)
-    setAttempt((value) => value + 1)
-  }, [])
+  const principalKey = JSON.stringify([graphqlUrl, accessToken])
+  const requestKey = JSON.stringify([graphqlUrl, accessToken, refreshEpoch, attempt])
+  const retry = useCallback(() => setAttempt((value) => value + 1), [])
 
   useEffect(() => {
     const controller = new AbortController()
     void fetchViewer(graphqlUrl, accessToken, controller.signal, mobileFetch)
-      .then((profile) => {
-        setViewer(profile)
-        setStatus('ready')
+      .then((viewer) => {
+        if (!controller.signal.aborted) {
+          setResult({ principalKey, requestKey, viewer, status: 'ready' })
+        }
       })
-      .catch((reason: unknown) => {
-        if (controller.signal.aborted) return
-        setError(message(reason))
-        setStatus('error')
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setResult({ principalKey, requestKey, status: 'error', error: 'Không thể xác minh hồ sơ. Hãy thử lại.' })
+        }
       })
     return () => controller.abort()
-  }, [accessToken, attempt, graphqlUrl])
+  }, [accessToken, graphqlUrl, principalKey, requestKey])
 
-  return { error, retry, status, viewer }
+  const exactMatch = result?.requestKey === requestKey
+  const retainedReady = !exactMatch && result?.principalKey === principalKey && result.status === 'ready' && Boolean(result.viewer)
+
+  return {
+    error: exactMatch ? result.error : undefined,
+    retry,
+    status: exactMatch ? result.status : retainedReady ? 'ready' as LoadStatus : 'loading' as LoadStatus,
+    viewer: exactMatch
+      ? (result.status === 'ready' ? result.viewer : undefined)
+      : (retainedReady ? result.viewer : undefined),
+  }
 }
 
 function sleep(milliseconds: number, signal: AbortSignal): Promise<void> {

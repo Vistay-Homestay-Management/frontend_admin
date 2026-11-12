@@ -955,7 +955,7 @@ export async function changeAccountLifecycle(
   return response.json() as Promise<AccountLifecycleResult>
 }
 
-async function graphqlRequest<T>(
+export async function graphqlRequest<T>(
   graphqlUrl: string,
   accessToken: string,
   operationName: string,
