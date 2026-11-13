@@ -39,6 +39,10 @@ Then verify login/callback, scoped list/detail/history, create/release operator 
 
 ## Gates and rollback
 
-Inventory automated/integration evidence is recorded separately in the central task log. G-DEVICE/TEST-03 needs runtime/device evidence. Booking remains BLOCKED_CONTRACT/UPSTREAM and Pricing BLOCKED_PERMISSION/UPSTREAM per A2 until owners provide authoritative evidence. No permission alias, Mode.ALL fallback or mock production data is added.
+Inventory automated unit/component test evidence, Web production build, and native runtime verification represent separate evidentiary gates:
+- Automated tests (`test:mobile`, `npm test`, `typecheck`, `lint`) prove component safety and contract constraints in Node.js.
+- Web build (`npm run build`) produces the admin web bundle only; it does not build or verify the native Android artifact.
+- Native `TEST-03` / `G-DEVICE` requires a connected Android device or emulator with reachable services and remains unverified until device execution.
+- Downstream domains: Booking remains `BLOCKED_CONTRACT`/`UPSTREAM` and Pricing `BLOCKED_PERMISSION`/`UPSTREAM` until authoritative upstream contracts/permissions are published; no client-side aliases or synthetic production mocks are introduced.
 
-No commit, push, PR, CI run or Jira transition is authorized by local implementation. Review patches before promotion. Rollback only this uncommitted integration delta in its isolated workspace after review; do not reset/clean the original checkout or remove the common staged baseline.
+Under the 1 Task = 1 PR lifecycle, changes for SCRUM-541 are committed on `feature/SCRUM-541-mobile-integration` for PR review and promotion into `dev`, with Codeowner reviewer `@QuanTrieuPCYT`. Jira workflow transitions remain held pending explicit review. If rollback of committed work is required, it must be performed on this feature branch within the isolated worktree; never reset, checkout, or clean the original `frontend_admin` repository checkout or its working tree.
