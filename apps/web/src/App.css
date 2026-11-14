@@ -219,6 +219,9 @@ a { color: inherit; text-decoration: none; }
 .provisioning-form textarea { min-height: 92px; resize: vertical; }
 .provisioning-form .primary-button { width: 100%; background: white; color: var(--ink); }
 .provisioning-form .primary-button:disabled { opacity: .42; }
+.provisioning-mode { padding: 4px; border: 1px solid rgba(255,255,255,.14); border-radius: 10px; background: #223128; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.provisioning-mode button { min-height: 38px; border: 0; border-radius: 7px; background: transparent; color: #aebbb3; cursor: pointer; font: inherit; font-size: .72rem; font-weight: 650; }
+.provisioning-mode button.active { background: #fff; color: #17231d; }
 .form-message { margin: 0; padding: 11px 12px; border-radius: 9px; font-size: .72rem; line-height: 1.5; }
 .form-message.error { background: #512b28; color: #ffd6d0; }
 .form-message.success { background: #2b4935; color: #dcf5d1; }

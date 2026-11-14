@@ -324,6 +324,23 @@ export interface ProvisionedBackofficeAccount {
   createdAt: string
 }
 
+export interface InviteBackofficeAccountInput {
+  email: string
+  fullName: string
+  reason: string
+}
+
+export interface InvitedBackofficeAccount {
+  invitationId: string
+  accountId: string
+  email: string
+  displayName: string
+  deliveryStatus: 'PENDING' | 'SENT' | 'RETRY_REQUIRED'
+  expiresAt: string
+  createdAt: string
+  replayed: boolean
+}
+
 export interface BackofficeSession {
   id: string
   ipAddress: string
@@ -890,6 +907,35 @@ export async function provisionBackofficeAccount(
     throw new ApiError(detail, response.status)
   }
   return response.json() as Promise<ProvisionedBackofficeAccount>
+}
+
+export async function inviteBackofficeAccount(
+  authAccountsApiUrl: string,
+  accessToken: string,
+  idempotencyKey: string,
+  input: InviteBackofficeAccountInput,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<InvitedBackofficeAccount> {
+  const invitationUrl = authAccountsApiUrl.replace(/\/accounts\/?$/, '/invitations')
+  if (invitationUrl === authAccountsApiUrl) {
+    throw new ApiError('Cấu hình API cấp tài khoản Backoffice không hợp lệ', 500)
+  }
+  const response = await fetcher(invitationUrl, {
+    method: 'POST',
+    headers: {
+      accept: 'application/json',
+      authorization: `Bearer ${accessToken}`,
+      'content-type': 'application/json',
+      'idempotency-key': idempotencyKey,
+      'x-correlation-id': idempotencyKey,
+      'x-csrf-token': '1',
+    },
+    body: JSON.stringify(input),
+  })
+  if (!response.ok) {
+    throw await authenticationProblem(response, `Không thể gửi lời mời (${response.status})`)
+  }
+  return response.json() as Promise<InvitedBackofficeAccount>
 }
 
 async function authenticationProblem(response: Response, fallback: string): Promise<ApiError> {
