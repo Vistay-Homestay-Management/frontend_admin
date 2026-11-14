@@ -21,7 +21,7 @@ Once a mutation has dispatched (`dispatched = true`), result classification uses
 | Criterion | Automated evidence in InventoryWorkspace.test.tsx | Native acceptance still required |
 |---|---|---|
 | AC01 observation/list/history | pinned revision; superseded token response; confirmed command vs refresh failure; 1/31-day windows | Compose fixture list/detail/history and exclusive-end dates |
-| AC02 safe create/release | offline preflight cancellation, authorizationReady recovery guard, dirty-filter/grant guards, latest release eligibility, invalid calendar/0/32-day windows, reason 9/10/1000/1001 | create/release each of four operator types; BOOKING/CHANNEL read-only |
+| AC02 safe create/release | offline preflight cancellation, authorizationReady recovery guard & pre-write refresh race/epoch invalidation, dirty-filter/grant guards, latest release eligibility, invalid calendar/0/32-day windows, reason 9/10/1000/1001 | create/release each of four operator types; BOOKING/CHANNEL read-only |
 | AC03 concurrency/errors | synchronous double tap; mid-flight runtime fluctuation create/reject; tab-switch/remount per-`accountId` guard retention; main-screen banner + `accessibilityState`; revision mismatch; sanitized unknown outcome | stale revision conflict with two operators, correlation/idempotency audit |
 | TEST-03 | Not replaced by mocked component tests | Android login/callback, airplane toggle, background/resume, account switching and server audit |
 
