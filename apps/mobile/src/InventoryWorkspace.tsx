@@ -258,6 +258,18 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, runtime, a
   const ready = runtime.isOnline && runtime.isActive && status === 'ready' && observationKey === contextKey
   const writeReady = ready && authorizationReady && viewer.permissions.includes('inventory:block') && !effectiveUnknownOutcome && !effectivePending
   const currentWriteReady = useRef(writeReady)
+  const authEpoch = useRef(1)
+  const currentAuthorizationReady = useRef(authorizationReady)
+  const currentAuthEpoch = useRef(1)
+
+  useLayoutEffect(() => {
+    if (!authorizationReady || currentAuthorizationReady.current !== authorizationReady) {
+      authEpoch.current += 1
+    }
+    currentAuthorizationReady.current = authorizationReady
+    currentAuthEpoch.current = authEpoch.current
+  }, [authorizationReady])
+
   const previousPrincipal = useRef(principalKey)
   const loadLatest = useRef<() => Promise<InventoryBlockManagementPage | undefined>>(async () => undefined)
   const canManage = viewer.permissions.includes('inventory:block')
@@ -363,11 +375,12 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, runtime, a
     onSuccess: (result: T) => void,
     successText: (result: T) => string,
   ) {
-    if (pending.current || currentPending.current || currentUnknownOutcome.current || !currentWriteReady.current || !authorizationReady || currentContext.current !== contextKey) return
+    if (pending.current || currentPending.current || currentUnknownOutcome.current || !currentWriteReady.current || !currentAuthorizationReady.current || currentContext.current !== contextKey) return
     pending.current = true
     const intentAccountId = viewer.accountId
     const intentPrincipal = principalKey
     const intentForm = formKey
+    const intentAuthEpoch = currentAuthEpoch.current
     const guardToken = startAccountPending(intentAccountId)
     onPendingChange?.(true)
     let dispatched = false
@@ -376,7 +389,7 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, runtime, a
     try {
       const freshPage = await refreshBeforeCommand()
       if (!freshPage) return
-      if (!authorizationReady || currentContext.current !== contextKey || currentPrincipal.current !== intentPrincipal || currentForm.current !== intentForm || !mounted.current) return
+      if (!currentAuthorizationReady.current || currentAuthEpoch.current !== intentAuthEpoch || currentContext.current !== contextKey || currentPrincipal.current !== intentPrincipal || currentForm.current !== intentForm || !mounted.current) return
       if (!prepare(freshPage)) return
       const correlationId = Crypto.randomUUID()
       dispatched = true
@@ -417,7 +430,7 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, runtime, a
   }
 
   async function handleCreate() {
-    if (pending.current || currentPending.current || currentUnknownOutcome.current || !currentWriteReady.current || !authorizationReady || currentContext.current !== contextKey) return
+    if (pending.current || currentPending.current || currentUnknownOutcome.current || !currentWriteReady.current || !currentAuthorizationReady.current || currentContext.current !== contextKey) return
     const reasonError = validateReason(createReason)
     const windowError = validateWindow(propertyId, createFrom, createTo)
     if (reasonError || windowError) {
@@ -442,7 +455,7 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, runtime, a
   }
 
   async function handleRelease() {
-    if (pending.current || currentPending.current || currentUnknownOutcome.current || !currentWriteReady.current || !authorizationReady || currentContext.current !== contextKey) return
+    if (pending.current || currentPending.current || currentUnknownOutcome.current || !currentWriteReady.current || !currentAuthorizationReady.current || currentContext.current !== contextKey) return
     if (!selectedBlock || !canRelease(selectedBlock)) return
     const reasonError = validateReason(releaseReason)
     if (reasonError) {

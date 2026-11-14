@@ -409,14 +409,60 @@ describe('InventoryWorkspace', () => {
     await act(async () => renderer.unmount())
   })
 
-  it('aborts command and prevents mutation if authorizationReady becomes false before send', async () => {
+  it('aborts create mutation if authorizationReady transitions to false while pre-write refresh is pending', async () => {
     const renderer = await renderInventory()
     await openCreate(renderer)
-    await act(async () => renderer.render(<InventoryWorkspace {...props({ authorizationReady: false })} />))
+    const pendingRefresh = Promise.withResolvers<typeof page>()
+    inventoryMocks.fetchInventoryBlocks.mockReturnValueOnce(pendingRefresh.promise)
     await act(async () => {
       button(renderer, 'Xác nhận tạo block').props.onPress()
     })
+    await act(async () => renderer.render(<InventoryWorkspace {...props({ authorizationReady: false })} />))
+    await act(async () => pendingRefresh.resolve(page))
     expect(inventoryMocks.createInventoryBlock).not.toHaveBeenCalled()
+    await act(async () => renderer.unmount())
+  })
+
+  it('aborts release mutation if authorizationReady transitions to false while pre-write refresh is pending', async () => {
+    const renderer = await renderInventory()
+    await act(async () => button(renderer, 'Bảo trì').props.onPress())
+    await act(async () => field(renderer, 'Lý do (10–1000 ký tự)').props.onChangeText('Hoàn tất bảo trì định kỳ đúng tiến độ'))
+    const pendingRefresh = Promise.withResolvers<typeof page>()
+    inventoryMocks.fetchInventoryBlocks.mockReturnValueOnce(pendingRefresh.promise)
+    await act(async () => {
+      button(renderer, 'Xác nhận giải phóng').props.onPress()
+    })
+    await act(async () => renderer.render(<InventoryWorkspace {...props({ authorizationReady: false })} />))
+    await act(async () => pendingRefresh.resolve(page))
+    expect(inventoryMocks.releaseInventoryBlock).not.toHaveBeenCalled()
+    await act(async () => renderer.unmount())
+  })
+
+  it('does not revive intent if authorizationReady toggles false then true while pre-write refresh is pending', async () => {
+    const renderer = await renderInventory()
+    await openCreate(renderer)
+    const pendingRefresh = Promise.withResolvers<typeof page>()
+    inventoryMocks.fetchInventoryBlocks.mockReturnValueOnce(pendingRefresh.promise)
+    await act(async () => {
+      button(renderer, 'Xác nhận tạo block').props.onPress()
+    })
+    await act(async () => renderer.render(<InventoryWorkspace {...props({ authorizationReady: false })} />))
+    await act(async () => renderer.render(<InventoryWorkspace {...props({ authorizationReady: true })} />))
+    await act(async () => pendingRefresh.resolve(page))
+    expect(inventoryMocks.createInventoryBlock).not.toHaveBeenCalled()
+    await act(async () => renderer.unmount())
+  })
+
+  it('dispatches valid create mutation exactly once when authorizationReady remains true and pending-lock does not self-block', async () => {
+    const renderer = await renderInventory()
+    await openCreate(renderer)
+    const pendingRefresh = Promise.withResolvers<typeof page>()
+    inventoryMocks.fetchInventoryBlocks.mockReturnValueOnce(pendingRefresh.promise)
+    await act(async () => {
+      button(renderer, 'Xác nhận tạo block').props.onPress()
+    })
+    await act(async () => pendingRefresh.resolve(page))
+    expect(inventoryMocks.createInventoryBlock).toHaveBeenCalledTimes(1)
     await act(async () => renderer.unmount())
   })
 });
