@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   consumeNotificationStream,
+  createProfileAccount,
+  createUserProfile,
   createInventoryBlock,
   fetchNotificationInbox,
   fetchNotificationPreferences,
@@ -9,6 +11,7 @@ import {
   fetchAuthorizationSubject,
   fetchBackofficeSessions,
   fetchInventoryBlocks,
+  fetchIdentityPolicies,
   fetchOverviewDashboard,
   fetchPropertyAvailability,
   fetchUserDirectory,
@@ -26,6 +29,7 @@ import {
   revokeBackofficeSession,
   SseParser,
   updateMyProfile,
+  updateIdentityPolicy,
   updateNotificationPreferences,
   previewNotificationTemplate,
   changeAccountLifecycle,
@@ -49,6 +53,91 @@ describe('SseParser', () => {
     expect(parser.push('{}\ndata: }\n\n')).toEqual([
       { event: 'next', data: '{"data":{}\n}', id: undefined, retry: undefined },
     ])
+  })
+})
+
+describe('identity administration contract', () => {
+  it('maps each profile type to its permission-bound GraphQL mutation', async () => {
+    const requests: Array<{ operationName: string; variables: Record<string, unknown> }> = []
+    const fetcher: typeof fetch = async (_input, init) => {
+      const request = JSON.parse(String(init?.body)) as { operationName: string; variables: Record<string, unknown> }
+      requests.push(request)
+      const field = request.operationName === 'CreateCustomerProfile'
+        ? 'createCustomerProfile'
+        : request.operationName === 'CreateAdminProfile' ? 'createAdminProfile' : 'createHostProfile'
+      return new Response(JSON.stringify({ data: { [field]: {
+        profileId: 'profile-1', accountId: null, accountType: 'CUSTOMER', displayName: 'Nguyen An',
+        email: 'an@example.test', contactPhone: null, status: 'ACTIVE', referenceCode: null,
+        subtype: null, verificationStatus: null, relevantDate: null, address: null, taxCode: null,
+        version: 0, createdAt: '2026-11-15T00:00:00Z', updatedAt: '2026-11-15T00:00:00Z',
+      } } }), { status: 200 })
+    }
+
+    for (const accountType of ['CUSTOMER', 'ADMIN', 'HOST'] as const) {
+      await createUserProfile('/graphql', 'token', {
+        accountType, fullName: ' Nguyen An ', email: ' an@example.test ', reason: 'Create known profile',
+        idempotencyKey: `profile-${accountType}`,
+      }, fetcher)
+    }
+
+    expect(requests.map((request) => request.operationName)).toEqual([
+      'CreateCustomerProfile', 'CreateAdminProfile', 'CreateHostProfile',
+    ])
+    expect(requests[0]?.variables.input).toEqual(expect.objectContaining({
+      fullName: 'Nguyen An', email: 'an@example.test', idempotencyKey: 'profile-CUSTOMER',
+    }))
+  })
+
+  it('reads and updates registration/link policy with an expected version', async () => {
+    const requests: Array<{ operationName: string; variables: Record<string, unknown> }> = []
+    const policy = {
+      accountType: 'HOST', policyVersion: 4, registrationEnabled: true, linkMode: 'REQUIRE_APPROVAL',
+      linkDeadlineSeconds: 604800, otpTtlSeconds: 600, maxOtpAttempts: 5,
+      disableGracePeriodSeconds: 86400, purgeAfterSeconds: 2592000, active: true,
+      updatedAt: '2026-11-15T00:00:00Z',
+    }
+    const fetcher: typeof fetch = async (_input, init) => {
+      const request = JSON.parse(String(init?.body)) as { operationName: string; variables: Record<string, unknown> }
+      requests.push(request)
+      const data = request.operationName === 'IdentityPolicies'
+        ? { identityPolicies: [policy] }
+        : { updateIdentityPolicy: { ...policy, policyVersion: 5, registrationEnabled: false } }
+      return new Response(JSON.stringify({ data }), { status: 200 })
+    }
+
+    await fetchIdentityPolicies('/graphql', 'token', undefined, fetcher)
+    const updated = await updateIdentityPolicy('/graphql', 'token', {
+      accountType: 'HOST', registrationEnabled: false, linkMode: 'REQUIRE_APPROVAL',
+      policyVersion: 4, reason: 'Pause public host registration', idempotencyKey: 'policy-1',
+    }, fetcher)
+
+    expect(updated.policyVersion).toBe(5)
+    expect(requests[1]?.variables.input).toEqual(expect.objectContaining({
+      expectedPolicyVersion: 4, registrationEnabled: false,
+    }))
+  })
+
+  it('creates an unlinked account through the auth facade with audit metadata', async () => {
+    let requestBody = ''
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestBody = String(init?.body)
+      return new Response(JSON.stringify({
+        requestId: 'request-1', profileId: 'profile-1', accountType: 'HOST', accountId: 'account-1',
+        email: 'host@example.test', displayName: 'Host One', mode: 'INVITATION', deliveryStatus: 'SENT',
+        expiresAt: '2026-11-16T00:00:00Z', createdAt: '2026-11-15T00:00:00Z', replayed: false,
+      }), { status: 201 })
+    })
+
+    await createProfileAccount('/api/v1/backoffice/accounts', 'token', 'account-command-1', {
+      profileId: 'profile-1', accountType: 'HOST', email: 'host@example.test', displayName: 'Host One',
+      mode: 'INVITATION', reason: 'Invite known host profile',
+    }, fetcher)
+
+    expect(fetcher).toHaveBeenCalledWith('/api/v1/profile-accounts', expect.objectContaining({
+      method: 'POST',
+      headers: expect.objectContaining({ 'idempotency-key': 'account-command-1', authorization: 'Bearer token' }),
+    }))
+    expect(JSON.parse(requestBody)).toEqual(expect.objectContaining({ profileId: 'profile-1', mode: 'INVITATION' }))
   })
 })
 
