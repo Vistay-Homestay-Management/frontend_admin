@@ -63,6 +63,8 @@ export function useViewer(graphqlUrl: string, accessToken: string, refreshEpoch 
     viewer: exactMatch
       ? (result.status === 'ready' ? result.viewer : undefined)
       : (retainedReady ? result.viewer : undefined),
+    isRevalidating: retainedReady,
+    authorizationReady: Boolean(exactMatch && result?.status === 'ready' && result?.viewer),
   }
 }
 

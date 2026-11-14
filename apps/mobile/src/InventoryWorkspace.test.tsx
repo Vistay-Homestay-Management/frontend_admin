@@ -399,7 +399,27 @@ describe('InventoryWorkspace', () => {
     expect(button(renderer, 'Xác nhận giải phóng').props.accessibilityState).toEqual({ disabled: true, busy: false })
     await act(async () => renderer.unmount())
   })
-})
+  it('locks create/release writes when authorizationReady is false even if observation is ready', async () => {
+    const renderer = await renderInventory(props({ authorizationReady: false }))
+    expect(renderedText(renderer.container.toJSON())).toContain('Đang xác minh quyền tài khoản sau kết nối')
+    expect(button(renderer, 'Tạo block').props.disabled).toBe(true)
+    await act(async () => renderer.render(<InventoryWorkspace {...props({ authorizationReady: true })} />))
+    expect(button(renderer, 'Tạo block').props.disabled).toBe(false)
+    expect(renderedText(renderer.container.toJSON())).not.toContain('Đang xác minh quyền tài khoản sau kết nối')
+    await act(async () => renderer.unmount())
+  })
+
+  it('aborts command and prevents mutation if authorizationReady becomes false before send', async () => {
+    const renderer = await renderInventory()
+    await openCreate(renderer)
+    await act(async () => renderer.render(<InventoryWorkspace {...props({ authorizationReady: false })} />))
+    await act(async () => {
+      button(renderer, 'Xác nhận tạo block').props.onPress()
+    })
+    expect(inventoryMocks.createInventoryBlock).not.toHaveBeenCalled()
+    await act(async () => renderer.unmount())
+  })
+});
 
 function props(overrides: Partial<MobileWorkspaceProps> = {}): MobileWorkspaceProps {
   return { graphqlUrl: '/graphql', accessToken: 'token', viewer, runtime: { isOnline: true, isActive: true, refreshEpoch: 0 }, ...overrides }

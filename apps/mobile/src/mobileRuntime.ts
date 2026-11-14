@@ -12,6 +12,7 @@ export interface MobileWorkspaceProps {
   accessToken: string
   viewer: BackofficeViewer
   runtime: MobileRuntime
+  authorizationReady?: boolean
 }
 
 export interface MobileRuntimeSnapshot {
