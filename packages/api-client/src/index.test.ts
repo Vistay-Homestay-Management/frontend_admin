@@ -14,6 +14,7 @@ import {
   fetchUserDirectory,
   fetchViewer,
   isDurableCursor,
+  inviteBackofficeAccount,
   mapNotificationReference,
   mergeNotifications,
   markAllNotificationsRead,
@@ -398,6 +399,34 @@ describe('Backoffice account provisioning client', () => {
     }, fetcher)).rejects.toMatchObject({
       message: 'BACKOFFICE_ACCOUNT_ALREADY_EXISTS',
       status: 409,
+    })
+  })
+
+  it('sends an employee invitation to the dedicated Backoffice endpoint', async () => {
+    let requestBody = ''
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestBody = String(init?.body)
+      return new Response(JSON.stringify({
+        invitationId: 'invite-1', accountId: 'account-1', email: 'staff@vistay.vn',
+        displayName: 'ViStay Staff', deliveryStatus: 'SENT',
+        expiresAt: '2026-11-15T00:00:00Z', createdAt: '2026-11-14T00:00:00Z', replayed: false,
+      }), { status: 201, headers: { 'content-type': 'application/json' } })
+    })
+
+    const invitation = await inviteBackofficeAccount(
+      '/api/v1/backoffice/accounts', 'access-token',
+      '6b1fb4a4-90a3-4231-a779-61af996b9f41',
+      { email: 'staff@vistay.vn', fullName: 'ViStay Staff', reason: 'Onboard operations employee' },
+      fetcher,
+    )
+
+    expect(invitation.deliveryStatus).toBe('SENT')
+    expect(fetcher).toHaveBeenCalledWith('/api/v1/backoffice/invitations', expect.objectContaining({
+      method: 'POST',
+      headers: expect.objectContaining({ authorization: 'Bearer access-token' }),
+    }))
+    expect(JSON.parse(requestBody)).toEqual({
+      email: 'staff@vistay.vn', fullName: 'ViStay Staff', reason: 'Onboard operations employee',
     })
   })
 

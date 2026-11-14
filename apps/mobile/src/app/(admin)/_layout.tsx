@@ -13,6 +13,7 @@ type IconName = ComponentProps<typeof Ionicons>['name']
 const navigation: { href: string; label: string; icon: IconName }[] = [
   { href: '/overview', label: 'Tổng quan', icon: 'grid-outline' },
   { href: '/booking', label: 'Booking', icon: 'calendar-outline' },
+  { href: '/inventory', label: 'Tồn phòng', icon: 'layers-outline' },
   { href: '/properties', label: 'Căn hộ', icon: 'business-outline' },
   { href: '/users', label: 'Người dùng', icon: 'people-outline' },
   { href: '/access', label: 'Phân quyền', icon: 'shield-checkmark-outline' },
