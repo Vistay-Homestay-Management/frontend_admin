@@ -3,7 +3,7 @@ import { fetch as expoFetch } from 'expo/fetch'
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { fetchPropertyAdminWorkspace, type PropertyAdminWorkspace } from '@vistay/admin-api-client'
 import { useAdmin } from '../../AdminContext'
-import { LoadState, Metric, PageHeading, SectionHeading, Surface, pageStyles } from '../../ui/primitives'
+import { LoadState, Metric, PageHeading, SectionHeading, Segmented, Surface, pageStyles } from '../../ui/primitives'
 import { palette } from '../../ui/theme'
 
 const mobileFetch = expoFetch as typeof globalThis.fetch
@@ -13,6 +13,7 @@ export default function PropertiesScreen() {
   const [data, setData] = useState<PropertyAdminWorkspace>()
   const [error, setError] = useState<string>()
   const [loading, setLoading] = useState(true)
+  const [tab, setTab] = useState<'overview' | 'attributes'>('overview')
   const canRead = viewer.permissions.includes('property:read') || viewer.permissions.includes('property-attribute:read')
 
   const load = useCallback(async () => {
@@ -42,14 +43,22 @@ export default function PropertiesScreen() {
     contentContainerStyle={pageStyles.content}
   >
     <PageHeading eyebrow="Danh mục" title="Căn hộ" detail="Tình trạng vận hành và các tiêu chí động đang áp dụng cho căn." />
+    <Segmented options={[{ label: 'Tổng quan', value: 'overview' }, { label: 'Tiêu chí căn', value: 'attributes' }]} value={tab} onChange={setTab} />
     {loading && !data ? <LoadState /> : error ? <LoadState error={error} retry={() => void load()} /> : data ? <>
-      <View style={pageStyles.grid}>
-        <View style={pageStyles.half}><Metric icon="business-outline" label="Đang hoạt động" value={String(data.summary.activeProperties)} tone="dark" /></View>
-        <View style={pageStyles.half}><Metric icon="construct-outline" label="Đang bảo trì" value={String(data.summary.maintenanceProperties)} /></View>
-        <View style={pageStyles.half}><Metric icon="warning-outline" label="Cần xử lý" value={String(data.summary.propertiesNeedingAttention)} tone="green" /></View>
-        <View style={pageStyles.half}><Metric icon="options-outline" label="Tiêu chí động" value={String(data.attributes.length)} /></View>
-      </View>
-      <View style={styles.section}>
+      {tab === 'overview' ? <>
+        <View style={pageStyles.grid}>
+          <View style={pageStyles.half}><Metric icon="business-outline" label="Đang hoạt động" value={String(data.summary.activeProperties)} tone="dark" /></View>
+          <View style={pageStyles.half}><Metric icon="construct-outline" label="Đang bảo trì" value={String(data.summary.maintenanceProperties)} /></View>
+          <View style={pageStyles.half}><Metric icon="warning-outline" label="Cần xử lý" value={String(data.summary.propertiesNeedingAttention)} tone="green" /></View>
+          <View style={pageStyles.half}><Metric icon="options-outline" label="Tiêu chí động" value={String(data.attributes.length)} /></View>
+        </View>
+        <View style={styles.section}>
+          <SectionHeading title="Trạng thái danh mục" caption="Số liệu authoritative từ Property service; Mobile không tự tổng hợp căn." />
+          <Surface>
+            <Text style={styles.overviewNote}>Dùng tab “Tiêu chí căn” để xem các trường động đang được publish cho danh mục.</Text>
+          </Surface>
+        </View>
+      </> : <View style={styles.section}>
         <SectionHeading title="Tiêu chí căn" caption="Catalog cấu hình chung; không cố định thêm trường riêng trong ứng dụng mobile." />
         <Surface>
           {data.attributes.length ? data.attributes.map((attribute) => <View key={attribute.id} style={styles.attribute}>
@@ -60,7 +69,7 @@ export default function PropertiesScreen() {
             <View style={[styles.status, attribute.status === 'ACTIVE' && styles.statusActive]}><Text style={[styles.statusText, attribute.status === 'ACTIVE' && styles.statusTextActive]}>{attribute.status}</Text></View>
           </View>) : <Text style={styles.empty}>Chưa có tiêu chí động nào.</Text>}
         </Surface>
-      </View>
+      </View>}
     </> : null}
   </ScrollView>
 }
@@ -76,4 +85,5 @@ const styles = StyleSheet.create({
   statusText: { color: palette.muted, fontSize: 8, fontWeight: '700' },
   statusTextActive: { color: palette.leaf },
   empty: { paddingVertical: 20, color: palette.muted, fontSize: 11, textAlign: 'center' },
+  overviewNote: { color: palette.muted, fontSize: 11, lineHeight: 17 },
 })
