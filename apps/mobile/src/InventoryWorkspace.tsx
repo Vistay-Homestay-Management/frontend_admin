@@ -169,9 +169,8 @@ function BlockCard({ block, onPress }: { block: InventoryBlockManagementNode; on
   )
 }
 
-function BookingOperationList({ blocks, propertyId, section, fromDate, toDateExclusive, onSelect }: {
+function BookingOperationList({ blocks, section, fromDate, toDateExclusive, onSelect }: {
   blocks: InventoryBlockManagementNode[]
-  propertyId: string
   section: Exclude<InventorySection, 'map'>
   fromDate: string
   toDateExclusive: string
@@ -213,9 +212,11 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, section = 
   const [commandStatus, setCommandStatus] = useState<'idle' | 'loading'>('idle')
   const [commandError, setCommandError] = useState<ErrorCopy>()
   const mounted = useRef(true)
+  const requestEpoch = useRef(0)
   const canManage = viewer.permissions.includes('inventory:block')
 
   const load = useCallback(async (quiet = false): Promise<InventoryBlockManagementPage | undefined> => {
+    const epoch = ++requestEpoch.current
     const normalizedId = propertyId.trim().toLowerCase()
     const validation = validateWindow(normalizedId, fromDate, toDateExclusive)
     if (validation) {
@@ -241,14 +242,14 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, section = 
         || nextPage.propertyMembershipVersion !== observation.propertyMembershipVersion) {
         throw new Error('Hai phép đọc không cùng revision hoặc phân vùng. Hãy làm mới trước khi thao tác.')
       }
-      if (!mounted.current) return undefined
+      if (!mounted.current || epoch !== requestEpoch.current) return undefined
       setPage(nextPage)
       setAvailability(observation)
       setSelectedBlock((current) => nextPage.nodes.find((node) => node.inventoryBlockId === current?.inventoryBlockId))
       setStatus('ready')
       return nextPage
     } catch (reason) {
-      if (!mounted.current) return undefined
+      if (!mounted.current || epoch !== requestEpoch.current) return undefined
       setError(toErrorCopy(reason))
       setStatus('error')
       return undefined
@@ -260,7 +261,10 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, section = 
   useEffect(() => {
     mounted.current = true
     queueMicrotask(() => void initialLoad.current())
-    return () => { mounted.current = false }
+    return () => {
+      mounted.current = false
+      requestEpoch.current += 1
+    }
   }, [])
 
   useEffect(() => {
@@ -274,8 +278,11 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, section = 
   useEffect(() => {
     if (previousSection.current === section) return
     previousSection.current = section
-    if (page) void load(true)
-  }, [load, page, section])
+    setPage(undefined)
+    setAvailability(undefined)
+    setSelectedBlock(undefined)
+    void load()
+  }, [load, section])
 
   async function refreshBeforeCommand(): Promise<InventoryBlockManagementPage | undefined> {
     setNotice('Đang xác minh revision mới nhất trước khi ghi…')
@@ -362,11 +369,12 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, section = 
 
   const active = page?.nodes.filter((node) => node.status === 'ACTIVE' || node.status === 'TENTATIVE') ?? []
   const history = page?.nodes.filter((node) => node.status === 'RELEASED' || node.status === 'CANCELLED') ?? []
-  const bookingBlocks = page?.nodes.filter((node) => BOOKING_TYPES.includes(node.type)) ?? []
+  const bookingBlocks = page?.nodes.filter((node) => BOOKING_TYPES.includes(node.type)
+    && (node.status === 'ACTIVE' || node.status === 'TENTATIVE')) ?? []
   const sectionBlocks = bookingBlocks.filter((node) => {
     if (section === 'reservations') return true
     if (section === 'check-in') return node.startDate >= fromDate && node.startDate < toDateExclusive
-    if (section === 'check-out') return node.endDateExclusive > fromDate && node.endDateExclusive <= toDateExclusive
+    if (section === 'check-out') return node.endDateExclusive > fromDate && node.endDateExclusive < toDateExclusive
     return false
   })
   const copy = sectionCopy[section]
@@ -445,7 +453,7 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, section = 
               <View style={styles.empty}><Text style={styles.emptyTitle}>Chưa có lịch sử</Text><Text style={styles.muted}>Block đã release hoặc hủy sẽ xuất hiện tại đây.</Text></View>
             )}
           </>}
-          {section !== 'map' && <BookingOperationList blocks={sectionBlocks} propertyId={propertyId} section={section} fromDate={fromDate} toDateExclusive={toDateExclusive} onSelect={(block) => { setSelectedBlock(block); setCommandError(undefined) }} />}
+          {section !== 'map' && <BookingOperationList blocks={sectionBlocks} section={section} fromDate={fromDate} toDateExclusive={toDateExclusive} onSelect={(block) => { setSelectedBlock(block); setCommandError(undefined) }} />}
         </>
       ) : null}
 
