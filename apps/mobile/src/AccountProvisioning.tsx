@@ -19,9 +19,13 @@ type OnboardingMode = 'DIRECT' | 'INVITATION'
 
 function errorMessage(error: unknown): string {
   if (!(error instanceof Error)) return 'Không thể tạo tài khoản nhân viên.'
-  return error.message.includes('BACKOFFICE_ACCOUNT_ALREADY_EXISTS')
-    ? 'Email này đã thuộc một tài khoản Backoffice.'
-    : error.message
+  if (error.message.includes('BACKOFFICE_ACCOUNT_ALREADY_EXISTS')) {
+    return 'Email này đã thuộc một tài khoản Backoffice.'
+  }
+  if (error.message.includes('BACKOFFICE_INVITATION_DISPATCH_UNAVAILABLE')) {
+    return 'Đã tạo hồ sơ nhưng chưa gửi được email. Gửi lại với cùng yêu cầu khi dịch vụ mail hoạt động.'
+  }
+  return error.message
 }
 
 export function AccountProvisioning({ authApiUrl, accessToken, viewer }: AccountProvisioningProps) {
