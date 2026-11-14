@@ -161,4 +161,25 @@ describe('InventoryWorkspace', () => {
     expect(inventoryMocks.releaseInventoryBlock).not.toHaveBeenCalled()
     await act(async () => renderer.unmount())
   })
+
+  it('keeps history mode read-only and omits active block cards', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] })
+    await act(async () => {
+      renderer.render(<InventoryWorkspace
+        graphqlUrl="/graphql"
+        accessToken="token"
+        viewer={viewer}
+        tab="history"
+      />)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const output = renderedText(renderer.container.toJSON())
+    expect(output).toContain('Lịch sử')
+    expect(output).toContain('Kênh OTA')
+    expect(output).not.toContain('Đang hiệu lực')
+    expect(output).not.toContain('Bảo trì điều hòa định kỳ')
+    await act(async () => renderer.unmount())
+  })
 })
