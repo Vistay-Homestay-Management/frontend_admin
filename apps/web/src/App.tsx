@@ -23,10 +23,10 @@ import { useAuth } from 'react-oidc-context'
 import './App.css'
 import vistayLogo from './assets/vistay-logo.png'
 import { AuthorizationConsole } from './AuthorizationConsole'
-import { AccountProvisioning } from './AccountProvisioning'
 import { SecuritySessions } from './SecuritySessions'
 import { PersonalProfileEditor } from './PersonalProfileEditor'
 import { AccountSecurityConsole } from './AccountSecurityConsole'
+import { IdentityAccountWorkspace, type IdentityAccountSection } from './IdentityAccountWorkspace'
 import { InventoryWorkspace, type InventorySection } from './InventoryWorkspace'
 import { PropertyManagement } from './PropertyManagement'
 import { UserDirectoryWorkspace, type UserDirectorySection } from './UserDirectoryWorkspace'
@@ -142,17 +142,21 @@ const userSections: Array<{ value: UserDirectorySection; label: string }> = [
   { value: 'hosts', label: 'Chủ nhà' },
 ]
 
-type IdentitySection = 'accounts' | 'authorization'
+type IdentitySection = IdentityAccountSection | 'roles'
 
 function pageFromHash(): AdminPage {
   const raw = window.location.hash.replace(/^#/, '').split('?')[0]
-  if (raw === 'accounts' || raw === 'authorization') return 'identity'
+  if (['identity-customers', 'identity-hosts', 'identity-admins', 'authorization'].includes(raw)) return 'identity'
   const page = raw as AdminPage
   return page in pageTitles ? page : 'overview'
 }
 
 function identitySectionFromHash(): IdentitySection {
-  return window.location.hash.replace(/^#/, '').split('?')[0] === 'authorization' ? 'authorization' : 'accounts'
+  const raw = window.location.hash.replace(/^#/, '').split('?')[0]
+  if (raw === 'identity-hosts') return 'hosts'
+  if (raw === 'identity-admins') return 'admins'
+  if (raw === 'authorization') return 'roles'
+  return 'customers'
 }
 
 function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: string }) {
@@ -286,8 +290,10 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
             {activePage === 'identity' && (
               <>
                 <span className="topbar-context-current" aria-current="page">Tài khoản & phân quyền</span>
-                <button type="button" role="tab" className={identitySection === 'accounts' ? 'active' : ''} aria-selected={identitySection === 'accounts'} onClick={() => setIdentitySection('accounts')}>Tài khoản</button>
-                <button type="button" role="tab" className={identitySection === 'authorization' ? 'active' : ''} aria-selected={identitySection === 'authorization'} onClick={() => setIdentitySection('authorization')}>Role & quyền</button>
+                <button type="button" role="tab" className={identitySection === 'customers' ? 'active' : ''} aria-selected={identitySection === 'customers'} onClick={() => setIdentitySection('customers')}>Khách hàng</button>
+                <button type="button" role="tab" className={identitySection === 'hosts' ? 'active' : ''} aria-selected={identitySection === 'hosts'} onClick={() => setIdentitySection('hosts')}>Chủ nhà</button>
+                <button type="button" role="tab" className={identitySection === 'admins' ? 'active' : ''} aria-selected={identitySection === 'admins'} onClick={() => setIdentitySection('admins')}>Nhân viên</button>
+                <button type="button" role="tab" className={identitySection === 'roles' ? 'active' : ''} aria-selected={identitySection === 'roles'} onClick={() => setIdentitySection('roles')}>Role & quyền</button>
               </>
             )}
           </div>
@@ -393,17 +399,21 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
 
             {activePage === 'notifications' && <NotificationInbox model={inbox} />}
 
-            {activePage === 'identity' && identitySection === 'accounts' && <><AccountProvisioning
-              authApiUrl={config.authApiUrl}
-              accessToken={accessToken}
-              viewer={profile.viewer}
-            />
-            <AccountSecurityConsole
-              authApiUrl={config.authApiUrl}
-              accessToken={accessToken}
-              viewer={profile.viewer}
-            /></>}
-            {activePage === 'identity' && identitySection === 'authorization' && <AuthorizationConsole
+            {activePage === 'identity' && identitySection !== 'roles' && <>
+              <IdentityAccountWorkspace
+                graphqlUrl={config.graphqlUrl}
+                authApiUrl={config.authApiUrl}
+                accessToken={accessToken}
+                viewer={profile.viewer}
+                section={identitySection}
+              />
+              {identitySection === 'admins' && <AccountSecurityConsole
+                authApiUrl={config.authApiUrl}
+                accessToken={accessToken}
+                viewer={profile.viewer}
+              />}
+            </>}
+            {activePage === 'identity' && identitySection === 'roles' && <AuthorizationConsole
               graphqlUrl={config.graphqlUrl}
               accessToken={accessToken}
               viewer={profile.viewer}

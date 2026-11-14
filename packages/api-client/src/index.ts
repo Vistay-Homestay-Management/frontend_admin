@@ -284,6 +284,65 @@ export interface UserDirectoryPage {
   nextCursor: string | null
 }
 
+export interface UserProfileDetails extends Omit<UserDirectoryEntry, 'joinedOn'> {
+  relevantDate: string | null
+  address: string | null
+  taxCode: string | null
+  version: number
+}
+
+export type CreateUserProfileInput = {
+  accountType: UserDirectoryAccountType
+  fullName: string
+  email?: string
+  contactPhone?: string
+  referenceCode?: string
+  subtype?: string
+  relevantDate?: string
+  address?: string
+  taxCode?: string
+  reason: string
+  idempotencyKey: string
+}
+
+export interface IdentityPolicy {
+  accountType: UserDirectoryAccountType
+  policyVersion: number
+  registrationEnabled: boolean
+  linkMode: 'AUTO_LINK' | 'REQUIRE_APPROVAL'
+  linkDeadlineSeconds: number
+  otpTtlSeconds: number
+  maxOtpAttempts: number
+  disableGracePeriodSeconds: number
+  purgeAfterSeconds: number
+  active: boolean
+  updatedAt: string
+}
+
+export interface ProfileAccountCommand {
+  profileId: string
+  accountType: UserDirectoryAccountType
+  email: string
+  displayName: string
+  mode: 'DIRECT' | 'INVITATION'
+  temporaryPassword?: string
+  reason: string
+}
+
+export interface ProfileAccountResult {
+  requestId: string
+  profileId: string
+  accountType: UserDirectoryAccountType
+  accountId: string
+  email: string
+  displayName: string
+  mode: 'DIRECT' | 'INVITATION'
+  deliveryStatus: 'NOT_REQUIRED' | 'PENDING' | 'SENT' | 'RETRY_REQUIRED'
+  expiresAt: string | null
+  createdAt: string
+  replayed: boolean
+}
+
 export interface ProfileLinkReview {
   linkId: string
   profileType: UserDirectoryAccountType
@@ -322,6 +381,23 @@ export interface ProvisionedBackofficeAccount {
   status: 'ACTIVE' | 'DISABLED' | 'CLOSED'
   version: number
   createdAt: string
+}
+
+export interface InviteBackofficeAccountInput {
+  email: string
+  fullName: string
+  reason: string
+}
+
+export interface InvitedBackofficeAccount {
+  invitationId: string
+  accountId: string
+  email: string
+  displayName: string
+  deliveryStatus: 'PENDING' | 'SENT' | 'RETRY_REQUIRED'
+  expiresAt: string
+  createdAt: string
+  replayed: boolean
 }
 
 export interface BackofficeSession {
@@ -892,6 +968,64 @@ export async function provisionBackofficeAccount(
   return response.json() as Promise<ProvisionedBackofficeAccount>
 }
 
+export async function inviteBackofficeAccount(
+  authAccountsApiUrl: string,
+  accessToken: string,
+  idempotencyKey: string,
+  input: InviteBackofficeAccountInput,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<InvitedBackofficeAccount> {
+  const invitationUrl = authAccountsApiUrl.replace(/\/accounts\/?$/, '/invitations')
+  if (invitationUrl === authAccountsApiUrl) {
+    throw new ApiError('Cấu hình API cấp tài khoản Backoffice không hợp lệ', 500)
+  }
+  const response = await fetcher(invitationUrl, {
+    method: 'POST',
+    headers: {
+      accept: 'application/json',
+      authorization: `Bearer ${accessToken}`,
+      'content-type': 'application/json',
+      'idempotency-key': idempotencyKey,
+      'x-correlation-id': idempotencyKey,
+      'x-csrf-token': '1',
+    },
+    body: JSON.stringify(input),
+  })
+  if (!response.ok) {
+    throw await authenticationProblem(response, `Không thể gửi lời mời (${response.status})`)
+  }
+  return response.json() as Promise<InvitedBackofficeAccount>
+}
+
+export async function createProfileAccount(
+  authAccountsApiUrl: string,
+  accessToken: string,
+  idempotencyKey: string,
+  input: ProfileAccountCommand,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<ProfileAccountResult> {
+  const endpoint = authAccountsApiUrl.replace(/\/backoffice\/accounts\/?$/, '/profile-accounts')
+  if (endpoint === authAccountsApiUrl) {
+    throw new ApiError('Cấu hình API quản trị tài khoản không hợp lệ', 500)
+  }
+  const response = await fetcher(endpoint, {
+    method: 'POST',
+    headers: {
+      accept: 'application/json',
+      authorization: `Bearer ${accessToken}`,
+      'content-type': 'application/json',
+      'idempotency-key': idempotencyKey,
+      'x-correlation-id': idempotencyKey,
+      'x-csrf-token': '1',
+    },
+    body: JSON.stringify(input),
+  })
+  if (!response.ok) {
+    throw await authenticationProblem(response, `Không thể tạo tài khoản hồ sơ (${response.status})`)
+  }
+  return response.json() as Promise<ProfileAccountResult>
+}
+
 async function authenticationProblem(response: Response, fallback: string): Promise<ApiError> {
   let detail = fallback
   try {
@@ -1353,6 +1487,154 @@ export async function fetchUserDirectory(
     fetcher,
   )
   return data.userDirectory
+}
+
+const USER_PROFILE_QUERY = `
+  query UserProfile($accountType: AccountType!, $profileId: ID!) {
+    userProfile(accountType: $accountType, profileId: $profileId) {
+      profileId accountId accountType displayName email contactPhone status
+      referenceCode subtype verificationStatus relevantDate address taxCode
+      version createdAt updatedAt
+    }
+  }
+`
+
+const CREATE_CUSTOMER_PROFILE_MUTATION = `
+  mutation CreateCustomerProfile($input: CreateCustomerProfileInput!) {
+    createCustomerProfile(input: $input) {
+      profileId accountId accountType displayName email contactPhone status
+      referenceCode subtype verificationStatus relevantDate address taxCode
+      version createdAt updatedAt
+    }
+  }
+`
+
+const CREATE_ADMIN_PROFILE_MUTATION = `
+  mutation CreateAdminProfile($input: CreateAdminProfileInput!) {
+    createAdminProfile(input: $input) {
+      profileId accountId accountType displayName email contactPhone status
+      referenceCode subtype verificationStatus relevantDate address taxCode
+      version createdAt updatedAt
+    }
+  }
+`
+
+const CREATE_HOST_PROFILE_MUTATION = `
+  mutation CreateHostProfile($input: CreateHostProfileInput!) {
+    createHostProfile(input: $input) {
+      profileId accountId accountType displayName email contactPhone status
+      referenceCode subtype verificationStatus relevantDate address taxCode
+      version createdAt updatedAt
+    }
+  }
+`
+
+export async function fetchUserProfile(
+  graphqlUrl: string,
+  accessToken: string,
+  accountType: UserDirectoryAccountType,
+  profileId: string,
+  signal?: AbortSignal,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<UserProfileDetails> {
+  const data = await graphqlRequest<{ userProfile: UserProfileDetails }>(
+    graphqlUrl, accessToken, 'UserProfile', USER_PROFILE_QUERY,
+    { accountType, profileId }, signal, fetcher,
+  )
+  return data.userProfile
+}
+
+export async function createUserProfile(
+  graphqlUrl: string,
+  accessToken: string,
+  input: CreateUserProfileInput,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<UserProfileDetails> {
+  const common = {
+    fullName: input.fullName.trim(),
+    email: input.email?.trim() || null,
+    contactPhone: input.contactPhone?.trim() || null,
+    reason: input.reason.trim(),
+    idempotencyKey: input.idempotencyKey,
+  }
+  const operation = input.accountType === 'CUSTOMER'
+    ? ['CreateCustomerProfile', CREATE_CUSTOMER_PROFILE_MUTATION, 'createCustomerProfile', {
+        ...common,
+        dateOfBirth: input.relevantDate || null,
+        address: input.address?.trim() || null,
+      }] as const
+    : input.accountType === 'ADMIN'
+      ? ['CreateAdminProfile', CREATE_ADMIN_PROFILE_MUTATION, 'createAdminProfile', {
+          ...common,
+          employeeCode: input.referenceCode?.trim() || null,
+          subtype: input.subtype || 'STAFF',
+          hiredOn: input.relevantDate || null,
+        }] as const
+      : ['CreateHostProfile', CREATE_HOST_PROFILE_MUTATION, 'createHostProfile', {
+          ...common,
+          hostCode: input.referenceCode?.trim() || null,
+          address: input.address?.trim() || null,
+          taxCode: input.taxCode?.trim() || null,
+        }] as const
+  const data = await graphqlRequest<Record<string, UserProfileDetails>>(
+    graphqlUrl, accessToken, operation[0], operation[1], { input: operation[3] }, undefined, fetcher,
+  )
+  const result = data[operation[2]]
+  if (!result) throw new Error('Profile creation returned no result')
+  return result
+}
+
+const IDENTITY_POLICIES_QUERY = `
+  query IdentityPolicies {
+    identityPolicies {
+      accountType policyVersion registrationEnabled linkMode linkDeadlineSeconds
+      otpTtlSeconds maxOtpAttempts disableGracePeriodSeconds purgeAfterSeconds active updatedAt
+    }
+  }
+`
+
+const UPDATE_IDENTITY_POLICY_MUTATION = `
+  mutation UpdateIdentityPolicy($input: UpdateIdentityPolicyInput!) {
+    updateIdentityPolicy(input: $input) {
+      accountType policyVersion registrationEnabled linkMode linkDeadlineSeconds
+      otpTtlSeconds maxOtpAttempts disableGracePeriodSeconds purgeAfterSeconds active updatedAt
+    }
+  }
+`
+
+export async function fetchIdentityPolicies(
+  graphqlUrl: string,
+  accessToken: string,
+  signal?: AbortSignal,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<IdentityPolicy[]> {
+  const data = await graphqlRequest<{ identityPolicies: IdentityPolicy[] }>(
+    graphqlUrl, accessToken, 'IdentityPolicies', IDENTITY_POLICIES_QUERY, {}, signal, fetcher,
+  )
+  return data.identityPolicies
+}
+
+export async function updateIdentityPolicy(
+  graphqlUrl: string,
+  accessToken: string,
+  input: Pick<IdentityPolicy, 'accountType' | 'registrationEnabled' | 'linkMode' | 'policyVersion'> & {
+    reason: string
+    idempotencyKey: string
+  },
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<IdentityPolicy> {
+  const data = await graphqlRequest<{ updateIdentityPolicy: IdentityPolicy }>(
+    graphqlUrl, accessToken, 'UpdateIdentityPolicy', UPDATE_IDENTITY_POLICY_MUTATION,
+    { input: {
+      accountType: input.accountType,
+      registrationEnabled: input.registrationEnabled,
+      linkMode: input.linkMode,
+      expectedPolicyVersion: input.policyVersion,
+      reason: input.reason.trim(),
+      idempotencyKey: input.idempotencyKey,
+    } }, undefined, fetcher,
+  )
+  return data.updateIdentityPolicy
 }
 
 const PROFILE_LINK_REVIEWS_QUERY = `
