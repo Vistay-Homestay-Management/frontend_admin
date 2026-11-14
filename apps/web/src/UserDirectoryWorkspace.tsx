@@ -9,6 +9,7 @@ import {
   EnvelopeSimple,
   IdentificationCard,
   LinkSimple,
+  LockKey,
   MagnifyingGlass,
   MapPin,
   Phone,
@@ -240,7 +241,9 @@ export function UserDirectoryWorkspace({ graphqlUrl, accessToken, viewer, sectio
         <div><h2 id="user-directory-title">{copy.title}</h2><p>{copy.description}</p></div>
         <div className="user-directory-tools">
           <label className="user-directory-search"><MagnifyingGlass /><span className="sr-only">Tìm người dùng</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tên, email, số điện thoại hoặc mã" /></label>
-          {canCreate && <button className="user-directory-create" type="button" onClick={() => setCreating(true)}><Plus />{copy.createLabel}</button>}
+          {canCreate
+            ? <button className="user-directory-create" type="button" onClick={() => setCreating(true)}><Plus />{copy.createLabel}</button>
+            : <button className="user-directory-create locked" type="button" disabled title={`Cần quyền ${copy.createPermission}`}><LockKey />{copy.createLabel}</button>}
         </div>
       </header>
 
