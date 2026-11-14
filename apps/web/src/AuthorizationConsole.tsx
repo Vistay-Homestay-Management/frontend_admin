@@ -31,7 +31,6 @@ import {
   type BackofficeViewer,
   type DataScope,
 } from '@vistay/admin-api-client'
-import heroImage from './assets/hero.png'
 import { RolePolicyWorkspacePanel } from './RolePolicyWorkspacePanel'
 
 gsap.registerPlugin(ScrollTrigger, useGSAP)
@@ -317,13 +316,9 @@ export function AuthorizationConsole({ graphqlUrl, accessToken, viewer }: Author
     <section className="authorization-console" id="authorization" ref={root}>
       <header className="authorization-hero">
         <div>
-          <p className="eyebrow">MAKER–CHECKER AUTHORIZATION</p>
-          <h2>
-            Phân quyền rõ đến từng
-            <span className="inline-title-image" style={{ backgroundImage: `url(${heroImage})` }} aria-hidden />
-            phạm vi dữ liệu.
-          </h2>
-          <p>Tra cứu subject và vận hành mô hình ba lớp — vai trò, hành động, phạm vi dữ liệu — bằng đúng phiên bản authorization đang hiệu lực.</p>
+          <p className="eyebrow">PHÂN QUYỀN</p>
+          <h2>Tài khoản, role và phạm vi dữ liệu</h2>
+          <p>Tra cứu một tài khoản để xem quyền hiệu lực, điều chỉnh phạm vi hoặc xử lý yêu cầu maker–checker.</p>
         </div>
         <form className="subject-search" onSubmit={submitLookup}>
           <label>
