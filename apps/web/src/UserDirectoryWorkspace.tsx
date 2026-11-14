@@ -106,6 +106,7 @@ export function UserDirectoryWorkspace({ graphqlUrl, accessToken, viewer, sectio
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState('')
   const [selected, setSelected] = useState<UserDirectoryEntry | null>(null)
+  const [previewed, setPreviewed] = useState<UserDirectoryEntry | null>(null)
   const [profile, setProfile] = useState<UserProfileDetails | null>(null)
   const [profileLoading, setProfileLoading] = useState(false)
   const [profileError, setProfileError] = useState('')
@@ -142,6 +143,7 @@ export function UserDirectoryWorkspace({ graphqlUrl, accessToken, viewer, sectio
 
   useEffect(() => {
     setSelected(null)
+    setPreviewed(null)
     setProfile(null)
     setCreating(false)
     if (!allowed) return
@@ -258,24 +260,44 @@ export function UserDirectoryWorkspace({ graphqlUrl, accessToken, viewer, sectio
 
       {!loading && !error && (
         <div className="user-directory-board">
-          <div className="user-directory-table-head" aria-hidden="true"><span>Người dùng</span><span>Liên hệ</span><span>Thông tin</span><span>Trạng thái</span></div>
-          <div className="user-directory-list">
-            {nodes.map((entry) => (
-              <button className="user-directory-row" type="button" key={entry.profileId} onClick={() => setSelected(entry)}>
-                <div className="user-directory-person"><span className="user-directory-avatar">{initials(entry.displayName) || <UserCircle />}</span><div><strong>{entry.displayName}</strong><small>{entry.referenceCode ?? entry.profileId.slice(0, 8)}</small></div></div>
-                <div className="user-directory-contact"><span><EnvelopeSimple />{entry.email ?? 'Chưa có email'}</span><span><Phone />{entry.contactPhone ?? 'Chưa có số điện thoại'}</span></div>
-                <div className="user-directory-meta"><span><IdentificationCard />{detail(entry)}</span><small>{entry.joinedOn ? `Bắt đầu ${new Date(entry.joinedOn).toLocaleDateString('vi-VN')}` : `Cập nhật ${new Date(entry.updatedAt).toLocaleDateString('vi-VN')}`}</small></div>
-                <span className={`user-directory-status ${entry.status.toLowerCase()}`}><CheckCircle />{statusLabel(entry.status)}</span>
-                <aside className="user-directory-preview" aria-hidden="true">
-                  <div><span className="user-directory-avatar">{initials(entry.displayName)}</span><strong>{entry.displayName}</strong></div>
-                  <p>{entry.email ?? 'Chưa có email'}</p><p>{entry.contactPhone ?? 'Chưa có điện thoại'}</p>
-                  <small>{entry.accountId ? 'Đã liên kết tài khoản' : 'Chưa có tài khoản'} · Nhấn để xem hồ sơ</small>
-                </aside>
-              </button>
-            ))}
-            {!nodes.length && <div className="user-directory-empty"><UserCircle /><strong>{copy.empty}</strong><span>Thử thay đổi từ khóa tìm kiếm.</span></div>}
+          <div className="user-directory-table">
+            <div className="user-directory-table-head" aria-hidden="true"><span>Người dùng</span><span>Liên hệ</span><span>Thông tin</span><span>Trạng thái</span></div>
+            <div className="user-directory-list">
+              {nodes.map((entry) => (
+                <button
+                  className="user-directory-row"
+                  type="button"
+                  key={entry.profileId}
+                  onMouseEnter={() => setPreviewed(entry)}
+                  onFocus={() => setPreviewed(entry)}
+                  onClick={() => setSelected(entry)}
+                >
+                  <div className="user-directory-person"><span className="user-directory-avatar">{initials(entry.displayName) || <UserCircle />}</span><div><strong>{entry.displayName}</strong><small>{entry.referenceCode ?? entry.profileId.slice(0, 8)}</small></div></div>
+                  <div className="user-directory-contact"><span><EnvelopeSimple />{entry.email ?? 'Chưa có email'}</span><span><Phone />{entry.contactPhone ?? 'Chưa có số điện thoại'}</span></div>
+                  <div className="user-directory-meta"><span><IdentificationCard />{detail(entry)}</span><small>{entry.joinedOn ? `Bắt đầu ${new Date(entry.joinedOn).toLocaleDateString('vi-VN')}` : `Cập nhật ${new Date(entry.updatedAt).toLocaleDateString('vi-VN')}`}</small></div>
+                  <span className={`user-directory-status ${entry.status.toLowerCase()}`}><CheckCircle />{statusLabel(entry.status)}</span>
+                </button>
+              ))}
+              {!nodes.length && <div className="user-directory-empty"><UserCircle /><strong>{copy.empty}</strong><span>Thử thay đổi từ khóa tìm kiếm.</span></div>}
+            </div>
+            {nextCursor && <button className="user-directory-more" type="button" disabled={loadingMore} onClick={() => void load(nextCursor)}>{loadingMore ? <><SpinnerGap className="spinner" />Đang tải…</> : `Xem thêm ${Math.max(totalCount - nodes.length, 0)} hồ sơ`}</button>}
           </div>
-          {nextCursor && <button className="user-directory-more" type="button" disabled={loadingMore} onClick={() => void load(nextCursor)}>{loadingMore ? <><SpinnerGap className="spinner" />Đang tải…</> : `Xem thêm ${Math.max(totalCount - nodes.length, 0)} hồ sơ`}</button>}
+          <aside className={`user-directory-inspector${previewed ? ' populated' : ''}`} aria-live="polite">
+            {previewed ? (
+              <>
+                <header><span className="user-directory-avatar">{initials(previewed.displayName)}</span><div><small>Xem nhanh</small><strong>{previewed.displayName}</strong></div></header>
+                <dl>
+                  <div><dt>Email</dt><dd>{previewed.email ?? 'Chưa cập nhật'}</dd></div>
+                  <div><dt>Điện thoại</dt><dd>{previewed.contactPhone ?? 'Chưa cập nhật'}</dd></div>
+                  <div><dt>Tài khoản</dt><dd>{previewed.accountId ? 'Đã liên kết' : 'Chưa liên kết'}</dd></div>
+                  <div><dt>Thông tin</dt><dd>{detail(previewed)}</dd></div>
+                </dl>
+                <p><IdentificationCard /> Nhấn vào bản ghi để mở hồ sơ đầy đủ.</p>
+              </>
+            ) : (
+              <div className="user-directory-inspector-empty"><UserCircle /><strong>Xem nhanh hồ sơ</strong><span>Di chuột hoặc dùng bàn phím chọn một bản ghi.</span></div>
+            )}
+          </aside>
         </div>
       )}
 
