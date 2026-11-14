@@ -161,4 +161,20 @@ describe('InventoryWorkspace', () => {
     expect(inventoryMocks.releaseInventoryBlock).not.toHaveBeenCalled()
     await act(async () => renderer.unmount())
   })
+
+  it('loads booking operation sections with booking/channel filters', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] })
+    await act(async () => {
+      renderer.render(<InventoryWorkspace graphqlUrl="/graphql" accessToken="token" section="reservations" viewer={viewer} />)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(inventoryMocks.fetchInventoryBlocks).toHaveBeenCalledWith(
+      '/graphql',
+      'token',
+      expect.objectContaining({ types: ['BOOKING', 'CHANNEL'] }),
+    )
+    await act(async () => renderer.unmount())
+  })
 })
