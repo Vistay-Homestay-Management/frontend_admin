@@ -30,10 +30,7 @@ interface InventoryWorkspaceProps {
   graphqlUrl: string
   accessToken: string
   viewer: BackofficeViewer
-  tab?: InventoryWorkspaceTab
 }
-
-export type InventoryWorkspaceTab = 'overview' | 'active' | 'history'
 
 type LoadStatus = 'idle' | 'loading' | 'ready' | 'error'
 type ErrorCopy = { title: string; detail: string; code?: string }
@@ -161,7 +158,7 @@ function BlockCard({ block, onPress }: { block: InventoryBlockManagementNode; on
   )
 }
 
-export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, tab = 'overview' }: InventoryWorkspaceProps) {
+export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: InventoryWorkspaceProps) {
   const today = useMemo(() => isoToday(), [])
   const [propertyId, setPropertyId] = useState(LOCAL_MANAGEMENT_PROPERTY)
   const [fromDate, setFromDate] = useState(today)
@@ -322,8 +319,6 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, tab = 'ove
 
   const active = page?.nodes.filter((node) => node.status === 'ACTIVE' || node.status === 'TENTATIVE') ?? []
   const history = page?.nodes.filter((node) => node.status === 'RELEASED' || node.status === 'CANCELLED') ?? []
-  const showActive = tab !== 'history'
-  const showHistory = tab !== 'active'
 
   return (
     <View style={styles.workspace}>
@@ -334,9 +329,9 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, tab = 'ove
         </View>
         <Pressable
           accessibilityRole="button"
-          disabled={!canManage || !page || tab === 'history'}
+          disabled={!canManage || !page}
           onPress={() => { setCreateOpen(true); setCommandError(undefined) }}
-          style={({ pressed }) => [styles.createButton, (!canManage || !page || tab === 'history') && styles.disabled, pressed && styles.pressed]}
+          style={({ pressed }) => [styles.createButton, (!canManage || !page) && styles.disabled, pressed && styles.pressed]}
         >
           <Text style={styles.createButtonText}>Tạo block</Text>
         </Pressable>
@@ -385,19 +380,15 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, tab = 'ove
           </View>
           {page.pageInfo.hasNextPage && <Text accessibilityRole="alert" style={styles.notice}>Kết quả vượt quá 100 block. Hãy thu hẹp khoảng ngày trước khi thao tác.</Text>}
 
-          {showActive && <>
-            <View style={styles.listHeader}><Text style={styles.sectionTitle}>Đang hiệu lực</Text><Text style={styles.count}>{active.length}</Text></View>
-            {active.length ? active.map((block) => <BlockCard key={block.inventoryBlockId} block={block} onPress={() => { setSelectedBlock(block); setCommandError(undefined) }} />) : (
-              <View style={styles.empty}><Text style={styles.emptyTitle}>Không có block hiệu lực</Text><Text style={styles.muted}>Khoảng ngày này hiện không có block đang hoạt động.</Text></View>
-            )}
-          </>}
+          <View style={styles.listHeader}><Text style={styles.sectionTitle}>Đang hiệu lực</Text><Text style={styles.count}>{active.length}</Text></View>
+          {active.length ? active.map((block) => <BlockCard key={block.inventoryBlockId} block={block} onPress={() => { setSelectedBlock(block); setCommandError(undefined) }} />) : (
+            <View style={styles.empty}><Text style={styles.emptyTitle}>Không có block hiệu lực</Text><Text style={styles.muted}>Khoảng ngày này hiện không có block đang hoạt động.</Text></View>
+          )}
 
-          {showHistory && <>
-            <View style={styles.listHeader}><Text style={styles.sectionTitle}>Lịch sử</Text><Text style={styles.count}>{history.length}</Text></View>
-            {history.length ? history.map((block) => <BlockCard key={block.inventoryBlockId} block={block} onPress={() => { setSelectedBlock(block); setCommandError(undefined) }} />) : (
-              <View style={styles.empty}><Text style={styles.emptyTitle}>Chưa có lịch sử</Text><Text style={styles.muted}>Block đã release hoặc hủy sẽ xuất hiện tại đây.</Text></View>
-            )}
-          </>}
+          <View style={styles.listHeader}><Text style={styles.sectionTitle}>Lịch sử</Text><Text style={styles.count}>{history.length}</Text></View>
+          {history.length ? history.map((block) => <BlockCard key={block.inventoryBlockId} block={block} onPress={() => { setSelectedBlock(block); setCommandError(undefined) }} />) : (
+            <View style={styles.empty}><Text style={styles.emptyTitle}>Chưa có lịch sử</Text><Text style={styles.muted}>Block đã release hoặc hủy sẽ xuất hiện tại đây.</Text></View>
+          )}
         </>
       ) : null}
 
