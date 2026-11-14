@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { AdminProvider } from '../../AdminContext'
 import { useMobileSession } from '../../MobileSession'
 import { useNotificationInbox, useViewer } from '../../useBackofficeData'
+import { useMobileRuntime } from '../../useMobileRuntime'
 import { palette, radii } from '../../ui/theme'
 
 type IconName = ComponentProps<typeof Ionicons>['name']
@@ -33,7 +34,8 @@ function AuthenticatedShell({ accessToken }: { accessToken: string }) {
   const { width } = useWindowDimensions()
   const compact = width < 370
   const pathname = usePathname()
-  const profile = useViewer(config.graphqlUrl, accessToken)
+  const runtime = useMobileRuntime()
+  const profile = useViewer(config.graphqlUrl, accessToken, runtime.refreshEpoch)
   const inbox = useNotificationInbox(config.graphqlUrl, accessToken, profile.viewer?.accountId)
 
   useEffect(() => {
@@ -44,7 +46,7 @@ function AuthenticatedShell({ accessToken }: { accessToken: string }) {
   if (profile.status === 'error' || !profile.viewer) return <ProfileFailure error={profile.error} retry={profile.retry} logout={() => void auth.logout()} />
 
   const initials = profile.viewer.displayName.split(/\s+/).filter(Boolean).slice(-2).map((part) => part[0]).join('').toUpperCase() || 'VA'
-  return <AdminProvider value={{ accessToken, config, inbox, retryViewer: profile.retry, viewer: profile.viewer }}>
+  return <AdminProvider value={{ accessToken, authorizationReady: profile.authorizationReady, config, inbox, isRevalidating: profile.isRevalidating, retryViewer: profile.retry, runtime, viewer: profile.viewer }}>
     <SafeAreaView edges={['top', 'left', 'right']} style={styles.safe}>
       <View style={styles.topbar}>
         <Pressable accessibilityLabel="Về Tổng quan" onPress={() => router.push('/overview')} style={styles.brand}>

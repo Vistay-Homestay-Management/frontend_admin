@@ -1,9 +1,8 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'test-renderer'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { InventoryWorkspace, resetInventorySessionGuards } from './InventoryWorkspace'
+import { InventoryWorkspace, resetInventorySessionGuards, type InventoryWorkspaceProps } from './InventoryWorkspace'
 import { ApiError } from '@vistay/admin-api-client'
-import type { MobileWorkspaceProps } from './mobileRuntime'
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -96,6 +95,30 @@ function renderedText(node: unknown): string {
     return renderedText((node as { children?: unknown }).children ?? [])
   }
   return ''
+}
+
+function localDate(offset: number): string {
+  const now = new Date()
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000)
+  local.setUTCDate(local.getUTCDate() + offset)
+  return local.toISOString().slice(0, 10)
+}
+
+function bookingNode(id: string, startOffset: number, endOffset: number) {
+  return {
+    inventoryBlockId: id,
+    propertyId: '61000000-0000-4000-8000-000000000010',
+    type: 'BOOKING' as const,
+    status: 'ACTIVE' as const,
+    startDate: localDate(startOffset),
+    endDateExclusive: localDate(endOffset),
+    reason: null,
+    channelProvider: null,
+    blockVersion: '1',
+    createdAt: '2026-11-01T00:00:00Z',
+    updatedAt: '2026-11-01T00:00:00Z',
+    releasedAt: null,
+  }
 }
 
 describe('InventoryWorkspace', () => {
@@ -465,9 +488,55 @@ describe('InventoryWorkspace', () => {
     expect(inventoryMocks.createInventoryBlock).toHaveBeenCalledTimes(1)
     await act(async () => renderer.unmount())
   })
+
+  it('loads operational sections through the shared booking/channel filter', async () => {
+    const renderer = await renderInventory(props({ section: 'reservations' }))
+    expect(inventoryMocks.fetchInventoryBlocks).toHaveBeenCalledWith(
+      '/graphql',
+      'token',
+      expect.objectContaining({ types: ['BOOKING', 'CHANNEL'] }),
+      expect.any(AbortSignal),
+    )
+    expect(button(renderer, 'Tạo block').props.disabled).toBe(true)
+    await act(async () => renderer.unmount())
+  })
+
+  it('keeps check-out filtering half-open while including the first day', async () => {
+    inventoryMocks.fetchInventoryBlocks.mockResolvedValueOnce({
+      ...page,
+      nodes: [bookingNode('booking-first-day', -2, 0), bookingNode('booking-inside', 2, 13), bookingNode('booking-boundary', 2, 14)],
+    })
+    const renderer = await renderInventory(props({ section: 'check-out' }))
+    const output = renderedText(renderer.container.toJSON())
+    expect(output).toContain('booking-first-day')
+    expect(output).toContain('booking-inside')
+    expect(output).not.toContain('booking-boundary')
+    await act(async () => renderer.unmount())
+  })
+
+  it('ignores an older section response that finishes after the selected section', async () => {
+    const deferred = Promise.withResolvers<typeof page>()
+    inventoryMocks.fetchInventoryBlocks.mockReturnValueOnce(deferred.promise)
+    const renderer = createRoot({ textComponentTypes: ['Text'] })
+    await act(async () => {
+      renderer.render(<InventoryWorkspace {...props({ section: 'map' })} />)
+      await Promise.resolve()
+    })
+    inventoryMocks.fetchInventoryBlocks.mockResolvedValueOnce({ ...page, nodes: [bookingNode('booking-current', 1, 3)] })
+    await act(async () => {
+      renderer.render(<InventoryWorkspace {...props({ section: 'reservations' })} />)
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(renderedText(renderer.container.toJSON())).toContain('booking-current')
+    await act(async () => deferred.resolve(page))
+    expect(renderedText(renderer.container.toJSON())).toContain('booking-current')
+    await act(async () => renderer.unmount())
+  })
 });
 
-function props(overrides: Partial<MobileWorkspaceProps> = {}): MobileWorkspaceProps {
+function props(overrides: Partial<InventoryWorkspaceProps> = {}): InventoryWorkspaceProps {
   return { graphqlUrl: '/graphql', accessToken: 'token', viewer, runtime: { isOnline: true, isActive: true, refreshEpoch: 0 }, ...overrides }
 }
 
@@ -479,7 +548,7 @@ function field(renderer: Root, label: string) {
   return renderer.container.queryAll((node) => node.type === 'TextInput' && node.props.accessibilityLabel === label)[0]!
 }
 
-async function renderInventory(customProps: MobileWorkspaceProps = props()) {
+async function renderInventory(customProps: InventoryWorkspaceProps = props()) {
   const renderer = createRoot({ textComponentTypes: ['Text'] })
   await act(async () => renderer.render(<InventoryWorkspace {...customProps} />))
   return renderer
