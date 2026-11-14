@@ -9,7 +9,9 @@ import {
   fetchAuthorizationSubject,
   fetchBackofficeSessions,
   fetchInventoryBlocks,
+  fetchOverviewDashboard,
   fetchPropertyAvailability,
+  fetchUserDirectory,
   fetchViewer,
   isDurableCursor,
   mapNotificationReference,
@@ -134,6 +136,32 @@ describe('GraphQL client', () => {
     }))
   })
 
+  it('loads a paginated read-only user directory', async () => {
+    let requestBody = ''
+    const fetcher: typeof fetch = async (_input, init) => {
+      requestBody = String(init?.body)
+      return new Response(JSON.stringify({ data: { userDirectory: {
+        totalCount: 1,
+        nextCursor: null,
+        nodes: [{
+          profileId: 'profile-1', accountId: 'account-1', accountType: 'CUSTOMER',
+          displayName: 'Nguyễn An', email: 'an@example.com', contactPhone: '+84901234567',
+          status: 'ACTIVE', referenceCode: null, subtype: null, verificationStatus: null,
+          joinedOn: null, createdAt: '2026-11-01T00:00:00Z', updatedAt: '2026-11-02T00:00:00Z',
+        }],
+      } } }), { status: 200 })
+    }
+
+    const page = await fetchUserDirectory('/graphql', 'token', {
+      accountType: 'CUSTOMER', search: 'Nguyễn', first: 25,
+    }, undefined, fetcher)
+
+    const request = JSON.parse(requestBody)
+    expect(page.nodes[0]?.displayName).toBe('Nguyễn An')
+    expect(request.operationName).toBe('UserDirectory')
+    expect(request.variables).toEqual({ accountType: 'CUSTOMER', search: 'Nguyễn', first: 25, after: null })
+  })
+
   it('loads the authorization subject, catalog, pending queue and audit trail', async () => {
     const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       const request = JSON.parse(String(init?.body)) as { operationName: string }
@@ -193,6 +221,37 @@ describe('GraphQL client', () => {
 
     await expect(fetchAuthorizationSubject('/graphql', 'token', 'subject-1', fetcher))
       .rejects.toThrow('Missing permission: authorization:read')
+  })
+
+  it('keeps authorized overview data when another subgraph returns a partial error', async () => {
+    let requestBody = ''
+    const fetcher: typeof fetch = async (_input, init) => {
+      requestBody = String(init?.body)
+      return new Response(JSON.stringify({
+        data: {
+          booking: {
+            view: 'SYSTEM', from: '2026-11-01', to: '2026-11-08', generatedAt: '2026-11-08T00:00:00Z',
+            totalBookings: 12, confirmedBookings: 9, cancelledBookings: 1, guests: 18,
+            bookedProperties: 7, occupiedNights: 21, occupancyRate: '42.86',
+            today: { expectedCheckIns: 2, expectedCheckOuts: 1, inHouse: 4, pendingConfirmation: 3, cancelledToday: 0, occupiedProperties: 4 },
+            money: [{ currency: 'VND', revenue: '12000000', averageBookingValue: '1000000' }],
+          },
+          property: null,
+        },
+        errors: [{ message: 'Property partition authority is unavailable', extensions: { code: 'AUTHORIZATION_UNAVAILABLE' } }],
+      }), { status: 200 })
+    }
+
+    const result = await fetchOverviewDashboard('/graphql', 'token', {
+      view: 'SYSTEM', from: '2026-11-01', to: '2026-11-08', includeProperty: true, includeFinance: false,
+    }, fetcher)
+
+    expect(result.booking?.totalBookings).toBe(12)
+    expect(result.property).toBeNull()
+    expect(result.errors).toEqual(['Property partition authority is unavailable'])
+    expect(JSON.parse(requestBody).variables).toEqual(expect.objectContaining({
+      view: 'SYSTEM', includeProperty: true, includeFinance: false,
+    }))
   })
 
   it('loads the revision-pinned inventory management page', async () => {
