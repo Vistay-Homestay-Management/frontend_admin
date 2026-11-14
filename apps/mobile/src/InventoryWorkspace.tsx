@@ -216,7 +216,7 @@ function BlockCard({ block, onPress }: { block: InventoryBlockManagementNode; on
   )
 }
 
-export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, runtime, sessionGuard, onPendingChange, onUnknownOutcome }: InventoryWorkspaceProps) {
+export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, runtime, authorizationReady = true, sessionGuard, onPendingChange, onUnknownOutcome }: InventoryWorkspaceProps) {
   const today = useMemo(() => isoToday(), [])
   const [propertyId, setPropertyId] = useState(LOCAL_MANAGEMENT_PROPERTY)
   const [fromDate, setFromDate] = useState(today)
@@ -256,7 +256,7 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, runtime, s
   const formKey = JSON.stringify([createOpen, createType, createFrom, createTo, createReason, selectedBlock?.inventoryBlockId, releaseReason])
   const currentForm = useRef(formKey)
   const ready = runtime.isOnline && runtime.isActive && status === 'ready' && observationKey === contextKey
-  const writeReady = ready && viewer.permissions.includes('inventory:block') && !effectiveUnknownOutcome && !effectivePending
+  const writeReady = ready && authorizationReady && viewer.permissions.includes('inventory:block') && !effectiveUnknownOutcome && !effectivePending
   const currentWriteReady = useRef(writeReady)
   const previousPrincipal = useRef(principalKey)
   const loadLatest = useRef<() => Promise<InventoryBlockManagementPage | undefined>>(async () => undefined)
@@ -363,7 +363,7 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, runtime, s
     onSuccess: (result: T) => void,
     successText: (result: T) => string,
   ) {
-    if (pending.current || currentPending.current || currentUnknownOutcome.current || !currentWriteReady.current || currentContext.current !== contextKey) return
+    if (pending.current || currentPending.current || currentUnknownOutcome.current || !currentWriteReady.current || !authorizationReady || currentContext.current !== contextKey) return
     pending.current = true
     const intentAccountId = viewer.accountId
     const intentPrincipal = principalKey
@@ -376,7 +376,7 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, runtime, s
     try {
       const freshPage = await refreshBeforeCommand()
       if (!freshPage) return
-      if (currentContext.current !== contextKey || currentPrincipal.current !== intentPrincipal || currentForm.current !== intentForm || !mounted.current) return
+      if (!authorizationReady || currentContext.current !== contextKey || currentPrincipal.current !== intentPrincipal || currentForm.current !== intentForm || !mounted.current) return
       if (!prepare(freshPage)) return
       const correlationId = Crypto.randomUUID()
       dispatched = true
@@ -417,7 +417,7 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, runtime, s
   }
 
   async function handleCreate() {
-    if (pending.current || currentPending.current || currentUnknownOutcome.current || !currentWriteReady.current || currentContext.current !== contextKey) return
+    if (pending.current || currentPending.current || currentUnknownOutcome.current || !currentWriteReady.current || !authorizationReady || currentContext.current !== contextKey) return
     const reasonError = validateReason(createReason)
     const windowError = validateWindow(propertyId, createFrom, createTo)
     if (reasonError || windowError) {
@@ -442,7 +442,7 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, runtime, s
   }
 
   async function handleRelease() {
-    if (pending.current || currentPending.current || currentUnknownOutcome.current || !currentWriteReady.current || currentContext.current !== contextKey) return
+    if (pending.current || currentPending.current || currentUnknownOutcome.current || !currentWriteReady.current || !authorizationReady || currentContext.current !== contextKey) return
     if (!selectedBlock || !canRelease(selectedBlock)) return
     const reasonError = validateReason(releaseReason)
     if (reasonError) {
@@ -513,6 +513,7 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, runtime, s
       )}
       {notice && <Text accessibilityRole="alert" style={styles.notice}>{notice}</Text>}
       {!ready && page && <Text accessibilityRole="alert" style={styles.notice}>Dữ liệu cũ — chỉ xem. Áp dụng bộ lọc và làm mới khi có mạng, ứng dụng đang hoạt động.</Text>}
+      {ready && !authorizationReady && page && <Text accessibilityRole="alert" style={styles.notice}>Đang xác minh quyền tài khoản sau kết nối. Thao tác ghi tạm thời bị khóa.</Text>}
       {error && status === 'error' && (
         <View style={styles.errorCard}>
           <Text style={styles.errorTitle}>{error.title}</Text>

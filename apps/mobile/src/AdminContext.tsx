@@ -11,6 +11,8 @@ export interface AdminContextValue {
   retryViewer: () => void
   viewer: BackofficeViewer
   runtime: MobileRuntime
+  authorizationReady?: boolean
+  isRevalidating?: boolean
 }
 
 const AdminContext = createContext<AdminContextValue | null>(null)

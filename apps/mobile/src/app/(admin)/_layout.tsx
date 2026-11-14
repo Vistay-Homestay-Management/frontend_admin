@@ -46,7 +46,7 @@ function AuthenticatedShell({ accessToken }: { accessToken: string }) {
   if (profile.status === 'error' || !profile.viewer) return <ProfileFailure error={profile.error} retry={profile.retry} logout={() => void auth.logout()} />
 
   const initials = profile.viewer.displayName.split(/\s+/).filter(Boolean).slice(-2).map((part) => part[0]).join('').toUpperCase() || 'VA'
-  return <AdminProvider value={{ accessToken, config, inbox, retryViewer: profile.retry, viewer: profile.viewer, runtime }}>
+  return <AdminProvider value={{ accessToken, config, inbox, retryViewer: profile.retry, viewer: profile.viewer, runtime, authorizationReady: profile.authorizationReady, isRevalidating: profile.isRevalidating }}>
     <SafeAreaView edges={['top', 'left', 'right']} style={styles.safe}>
       <View style={styles.topbar}>
         <Pressable accessibilityLabel="Về Tổng quan" onPress={() => router.push('/overview')} style={styles.brand}>

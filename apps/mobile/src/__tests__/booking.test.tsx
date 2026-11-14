@@ -1,11 +1,11 @@
 import { act } from 'react'
 import { createRoot } from 'test-renderer'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import BookingScreen from './booking'
-import { AdminProvider, type AdminContextValue } from '../../AdminContext'
+import BookingScreen from '../app/(admin)/booking'
+import { AdminProvider, type AdminContextValue } from '../AdminContext'
 import type { BackofficeViewer } from '@vistay/admin-api-client'
-import type { MobileRuntime } from '../../mobileRuntime'
-import type { NotificationInboxModel } from '../../useBackofficeData'
+import type { MobileRuntime } from '../mobileRuntime'
+import type { NotificationInboxModel } from '../useBackofficeData'
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -82,24 +82,30 @@ const mockInbox: NotificationInboxModel = {
   markAllRead: vi.fn(async () => undefined),
 }
 
-function createMockAdminContext(runtimeOverrides: Partial<MobileRuntime> = {}): AdminContextValue {
+function createMockAdminContext(
+  runtimeOverrides: Partial<MobileRuntime> = {},
+  contextOverrides: Partial<AdminContextValue> = {},
+): AdminContextValue {
   return {
-    accessToken: 'test-access-token',
+    accessToken: "test-access-token",
     config: {
-      authApiUrl: 'https://auth.vistay.test',
-      graphqlUrl: 'https://api.vistay.test/graphql',
-      oidcIssuer: 'https://auth.vistay.test/realms/backoffice',
-      oidcClientId: 'admin-mobile-client',
+      authApiUrl: "https://auth.vistay.test",
+      graphqlUrl: "https://api.vistay.test/graphql",
+      oidcIssuer: "https://auth.vistay.test/realms/backoffice",
+      oidcClientId: "admin-mobile-client",
     },
     inbox: mockInbox,
     retryViewer: vi.fn(),
     viewer: mockViewer,
+    authorizationReady: true,
+    isRevalidating: false,
     runtime: {
       isOnline: true,
       isActive: true,
       refreshEpoch: 0,
       ...runtimeOverrides,
     },
+    ...contextOverrides,
   }
 }
 
@@ -110,15 +116,15 @@ describe('BookingScreen with Expo Router and Mobile Runtime', () => {
       nodes: [],
       pageInfo: { hasNextPage: false, endCursor: null, startCursor: null, cursorState: 'ACTIVE', retainedFrom: null, reconcileFrom: null },
       totalCount: 0,
+      inventoryRevision: '17',
+      branchId: '62000000-0000-4000-8000-000000000020',
+      propertyMembershipVersion: '6',
     })
-    inventoryMocks.fetchPropertyAvailability.mockResolvedValue({
-      propertyId: '61000000-0000-4000-8000-000000000010',
-      fromDateInclusive: '2026-11-04',
-      toDateExclusive: '2026-11-05',
-      units: [],
-      inventoryRevision: 1,
-      observedAt: '2026-11-04T08:00:00Z',
-    })
+    inventoryMocks.fetchPropertyAvailability.mockImplementation(async (_url, _token, propertyId, checkInDate, checkOutDate) => ({
+      propertyId, checkInDate, checkOutDate, available: false,
+      inventoryRevision: '17', branchId: '62000000-0000-4000-8000-000000000020',
+      propertyMembershipVersion: '6', observedAt: '2026-11-04T08:00:00Z', overlaps: [],
+    }))
   })
 
   it('renders BookingScreen within AdminProvider propagating runtime to InventoryWorkspace', async () => {
@@ -169,4 +175,72 @@ describe('BookingScreen with Expo Router and Mobile Runtime', () => {
     expect(inventoryMocks.fetchInventoryBlocks).not.toHaveBeenCalled()
     expect(inventoryMocks.fetchPropertyAvailability).not.toHaveBeenCalled()
   })
-})
+  it('locks write mutations and disables create button when viewer is revalidating (authorizationReady is false)', async () => {
+    const revalidatingContext = createMockAdminContext({}, { authorizationReady: false, isRevalidating: true })
+    const renderer = createRoot({ textComponentTypes: ['Text'] })
+    await act(async () => {
+      renderer.render(
+        <AdminProvider value={revalidatingContext}>
+          <BookingScreen />
+        </AdminProvider>,
+      )
+    })
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    const text = renderedText(renderer.container.toJSON())
+    expect(text).toContain('Booking')
+    expect(text).toContain('Đang xác minh quyền tài khoản sau kết nối')
+  })
+
+  it('enables write mutations once authorizationReady transitions to true on current recovery epoch', async () => {
+    const revalidatingContext = createMockAdminContext({}, { authorizationReady: false, isRevalidating: true })
+    const renderer = createRoot({ textComponentTypes: ['Text'] })
+    await act(async () => {
+      renderer.render(
+        <AdminProvider value={revalidatingContext}>
+          <BookingScreen />
+        </AdminProvider>,
+      )
+    })
+    expect(renderedText(renderer.container.toJSON())).toContain('Đang xác minh quyền tài khoản sau kết nối')
+
+    const readyContext = createMockAdminContext({}, { authorizationReady: true, isRevalidating: false })
+    await act(async () => {
+      renderer.render(
+        <AdminProvider value={readyContext}>
+          <BookingScreen />
+        </AdminProvider>,
+      )
+    })
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(renderedText(renderer.container.toJSON())).not.toContain('Đang xác minh quyền tài khoản sau kết nối')
+  })
+
+  it('remains locked if revalidation completes with revoked inventory:block grant', async () => {
+    const revokedContext = createMockAdminContext(
+      {},
+      {
+        viewer: { ...mockViewer, permissions: ['inventory:read'] },
+        authorizationReady: true,
+        isRevalidating: false,
+      },
+    )
+    const renderer = createRoot({ textComponentTypes: ['Text'] })
+    await act(async () => {
+      renderer.render(
+        <AdminProvider value={revokedContext}>
+          <BookingScreen />
+        </AdminProvider>,
+      )
+    })
+    const text = renderedText(renderer.container.toJSON())
+    expect(text).toContain('Booking')
+  })
+});
