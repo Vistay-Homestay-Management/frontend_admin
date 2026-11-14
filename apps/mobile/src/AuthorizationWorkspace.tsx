@@ -15,6 +15,9 @@ import {
   fetchAuthorizationWorkspace,
   fetchRolePolicyWorkspace,
   reduceAuthorizationScopes,
+  requestCreateRole,
+  requestDeactivateRole,
+  requestRolePermissionChange,
   rejectAuthorizationChange,
   requestAuthorizationChange,
   revokeRoleAssignment,
@@ -26,6 +29,7 @@ import {
   type AuthorizationWorkspace as Workspace,
   type BackofficeViewer,
   type DataScope,
+  type PermissionCatalogEntry,
   type RolePolicyChangeRequest,
   type RolePolicyRole,
 } from '@vistay/admin-api-client'
@@ -101,13 +105,20 @@ export function AuthorizationWorkspace({ graphqlUrl, accessToken, viewer }: {
   const [retainedScopes, setRetainedScopes] = useState<Record<string, DataScope[]>>({})
   const [reductionReason, setReductionReason] = useState('')
   const [policyRoles, setPolicyRoles] = useState<RolePolicyRole[]>([])
+  const [policyPermissions, setPolicyPermissions] = useState<PermissionCatalogEntry[]>([])
   const [policyQueue, setPolicyQueue] = useState<RolePolicyChangeRequest[]>([])
+  const [selectedPolicyCode, setSelectedPolicyCode] = useState<string>()
+  const [selectedPolicyPermissions, setSelectedPolicyPermissions] = useState<string[]>([])
+  const [newRoleCode, setNewRoleCode] = useState('')
+  const [newRoleName, setNewRoleName] = useState('')
+  const [policyReason, setPolicyReason] = useState('')
 
   const canRead = hasPermission(viewer, 'authorization:read')
   const canGrant = hasPermission(viewer, 'authorization:grant')
   const canApprove = hasPermission(viewer, 'authorization:approve')
   const canRevoke = hasPermission(viewer, 'authorization:revoke')
   const canReadRoles = hasPermission(viewer, 'role:read')
+  const canRequestRoles = hasPermission(viewer, 'role:change-request')
   const canApproveRoles = hasPermission(viewer, 'role:change-approve')
   const selectedRole = useMemo(
     () => workspace?.catalog.find((role) => role.code === selectedRoleCode),
@@ -170,7 +181,15 @@ export function AuthorizationWorkspace({ graphqlUrl, accessToken, viewer }: {
     if (!canReadRoles) return
     let active = true
     void fetchRolePolicyWorkspace(graphqlUrl, accessToken, accountType, mobileFetch)
-      .then((data) => { if (active) { setPolicyRoles(data.roles); setPolicyQueue(data.pendingRequests) } })
+      .then((data) => {
+        if (!active) return
+        setPolicyRoles(data.roles)
+        setPolicyPermissions(data.permissions.filter((permission) => permission.active))
+        setPolicyQueue(data.pendingRequests)
+        const firstRole = data.roles.find((role) => role.active) ?? data.roles[0]
+        setSelectedPolicyCode(firstRole?.code)
+        setSelectedPolicyPermissions(firstRole?.grants.map((grant) => grant.permissionCode) ?? [])
+      })
       .catch((error: unknown) => { if (active) setLoadError(messageOf(error)) })
     return () => { active = false }
   }, [accessToken, accountType, canReadRoles, graphqlUrl])
@@ -196,6 +215,12 @@ export function AuthorizationWorkspace({ graphqlUrl, accessToken, viewer }: {
       await action()
       setMutationState('success')
       setMutationMessage(successMessage)
+      if (canReadRoles) {
+        const data = await fetchRolePolicyWorkspace(graphqlUrl, accessToken, accountType, mobileFetch)
+        setPolicyRoles(data.roles)
+        setPolicyPermissions(data.permissions.filter((permission) => permission.active))
+        setPolicyQueue(data.pendingRequests)
+      }
       await load()
       return true
     } catch (error) {
@@ -203,6 +228,67 @@ export function AuthorizationWorkspace({ graphqlUrl, accessToken, viewer }: {
       setMutationMessage(messageOf(error))
       return false
     }
+  }
+
+  const selectedPolicyRole = policyRoles.find((role) => role.code === selectedPolicyCode)
+  const activePolicyPermissions = new Set(selectedPolicyRole?.grants.map((grant) => grant.permissionCode) ?? [])
+
+  function togglePolicyPermission(code: string) {
+    setSelectedPolicyPermissions((current) => current.includes(code)
+      ? current.filter((item) => item !== code)
+      : [...current, code])
+  }
+
+  async function requestPolicyPermissionChange() {
+    if (!selectedPolicyRole || policyReason.trim().length < 8) return
+    await mutate(
+      () => requestRolePermissionChange(graphqlUrl, accessToken, {
+        roleCode: selectedPolicyRole.code,
+        accountType,
+        addGrants: selectedPolicyPermissions
+          .filter((code) => !activePolicyPermissions.has(code))
+          .map((permissionCode) => ({ permissionCode, allowedScopes: ['ALL'], partitionTypes: [] })),
+        removePermissionCodes: [...activePolicyPermissions].filter((code) => !selectedPolicyPermissions.includes(code)),
+        expectedRoleVersion: selectedPolicyRole.roleVersion,
+        reason: policyReason.trim(),
+        idempotencyKey: idempotencyKey(),
+      }, mobileFetch),
+      'Đã gửi thay đổi quyền của role cho checker.',
+    )
+    setPolicyReason('')
+  }
+
+  async function requestRoleDeactivation() {
+    if (!selectedPolicyRole || selectedPolicyRole.systemRole || !selectedPolicyRole.active || policyReason.trim().length < 8) return
+    await mutate(
+      () => requestDeactivateRole(graphqlUrl, accessToken, {
+        roleCode: selectedPolicyRole.code,
+        accountType,
+        expectedRoleVersion: selectedPolicyRole.roleVersion,
+        reason: policyReason.trim(),
+        idempotencyKey: idempotencyKey(),
+      }, mobileFetch),
+      'Đã gửi đề xuất vô hiệu hóa role.',
+    )
+    setPolicyReason('')
+  }
+
+  async function requestRoleCreation() {
+    if (!newRoleCode.trim() || newRoleName.trim().length < 3 || selectedPolicyPermissions.length === 0 || policyReason.trim().length < 8) return
+    await mutate(
+      () => requestCreateRole(graphqlUrl, accessToken, {
+        code: newRoleCode.trim().toUpperCase(),
+        displayName: newRoleName.trim(),
+        accountType,
+        grants: selectedPolicyPermissions.map((permissionCode) => ({ permissionCode, allowedScopes: ['ALL'], partitionTypes: [] })),
+        reason: policyReason.trim(),
+        idempotencyKey: idempotencyKey(),
+      }, mobileFetch),
+      'Đã gửi đề xuất tạo role custom.',
+    )
+    setNewRoleCode('')
+    setNewRoleName('')
+    setPolicyReason('')
   }
 
   async function submitChange() {
@@ -318,11 +404,36 @@ export function AuthorizationWorkspace({ graphqlUrl, accessToken, viewer }: {
           <Text style={styles.eyebrow}>ROLE POLICY V2</Text>
           <Text style={styles.cardTitle}>Catalog và checker queue</Text>
           <Text style={styles.body}>Policy theo role, version hóa và không cho requester tự phê duyệt.</Text>
-          {policyRoles.map((role) => (
-            <View key={role.code} style={styles.assignmentRow}>
-              <View><Text style={styles.policyName}>{role.code}</Text><Text style={styles.body}>v{role.roleVersion} · {role.grants.length} permissions{role.systemRole ? ' · system' : ''}</Text></View>
+          <View style={styles.policyRoleList}>
+            {policyRoles.map((role) => (
+              <Pressable key={role.code} onPress={() => { setSelectedPolicyCode(role.code); setSelectedPolicyPermissions(role.grants.map((grant) => grant.permissionCode)) }} style={[styles.policyRole, selectedPolicyCode === role.code && styles.policyRoleActive]}>
+                <Text style={[styles.policyName, selectedPolicyCode === role.code && styles.policyNameActive]}>{role.code}</Text>
+                <Text style={[styles.body, selectedPolicyCode === role.code && styles.policyRoleMetaActive]}>v{role.roleVersion} · {role.grants.length} quyền{role.systemRole ? ' · system' : ''}</Text>
+              </Pressable>
+            ))}
+          </View>
+          {selectedPolicyRole && <>
+            <Text style={styles.cardTitle}>Quyền của {selectedPolicyRole.displayName}</Text>
+            <View style={styles.policyPermissionList}>
+              {policyPermissions.map((permission) => <Choice
+                key={permission.code}
+                active={selectedPolicyPermissions.includes(permission.code)}
+                disabled={!canRequestRoles}
+                label={permission.code}
+                onPress={() => togglePolicyPermission(permission.code)}
+              />)}
             </View>
-          ))}
+            <TextInput accessibilityLabel="Lý do thay đổi role" maxLength={500} multiline onChangeText={setPolicyReason} placeholder="Lý do thay đổi role (ít nhất 8 ký tự)" placeholderTextColor="#879189" style={[styles.input, styles.textarea]} value={policyReason} />
+            <View style={styles.policyActions}>
+              <Pressable disabled={!canRequestRoles || mutationState === 'saving' || policyReason.trim().length < 8} onPress={() => void requestPolicyPermissionChange()} style={[styles.secondaryButton, (!canRequestRoles || policyReason.trim().length < 8) && styles.disabled]}><Text style={styles.secondaryButtonText}>Gửi permission diff</Text></Pressable>
+              {!selectedPolicyRole.systemRole && selectedPolicyRole.active && <Pressable disabled={!canRequestRoles || mutationState === 'saving' || policyReason.trim().length < 8} onPress={() => void requestRoleDeactivation()} style={[styles.dangerButton, (!canRequestRoles || policyReason.trim().length < 8) && styles.disabled]}><Text style={styles.dangerButtonText}>Vô hiệu hóa</Text></Pressable>}
+            </View>
+          </>}
+          {canRequestRoles && <>
+            <Text style={styles.cardTitle}>Tạo custom role</Text>
+            <View style={styles.dateRow}><TextInput autoCapitalize="characters" maxLength={64} onChangeText={setNewRoleCode} placeholder="ROLE_CODE" placeholderTextColor="#879189" style={[styles.input, styles.flexInput]} value={newRoleCode} /><TextInput maxLength={120} onChangeText={setNewRoleName} placeholder="Tên hiển thị" placeholderTextColor="#879189" style={[styles.input, styles.flexInput]} value={newRoleName} /></View>
+            <Pressable disabled={mutationState === 'saving' || newRoleCode.trim().length < 2 || newRoleName.trim().length < 3 || selectedPolicyPermissions.length === 0 || policyReason.trim().length < 8} onPress={() => void requestRoleCreation()} style={[styles.secondaryButton, (mutationState === 'saving' || newRoleCode.trim().length < 2 || newRoleName.trim().length < 3 || selectedPolicyPermissions.length === 0 || policyReason.trim().length < 8) && styles.disabled]}><Text style={styles.secondaryButtonText}>Gửi đề xuất tạo role</Text></Pressable>
+          </>}
           <Text style={styles.cardTitle}>Đang chờ ({policyQueue.length})</Text>
           {policyQueue.map((request) => (
             <View key={request.id} style={styles.assignmentRow}>
@@ -536,6 +647,20 @@ const styles = StyleSheet.create({
   darkMuted: { color: '#9caaa2', fontSize: 9 },
   assignment: { paddingVertical: 14, borderTopWidth: 1, borderTopColor: '#35443b', flexDirection: 'row', alignItems: 'center', gap: 9 },
   assignmentRow: { paddingVertical: 13, borderTopWidth: 1, borderTopColor: '#e6e6df', gap: 8 },
+  policyRoleList: { marginTop: 14, gap: 7 },
+  policyRole: { padding: 12, borderWidth: 1, borderColor: '#dcddd5', borderRadius: 12, backgroundColor: '#f3f4ee' },
+  policyRoleActive: { borderColor: '#17231d', backgroundColor: '#17231d' },
+  policyNameActive: { color: '#ffffff' },
+  policyRoleMetaActive: { color: '#c3d2c8' },
+  policyPermissionList: { marginTop: 10, flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  policyActions: { flexDirection: 'row', gap: 8 },
+  secondaryButton: { flex: 1, minHeight: 44, borderRadius: 11, backgroundColor: '#3d654f', alignItems: 'center', justifyContent: 'center' },
+  secondaryButtonText: { color: '#ffffff', fontSize: 10, fontWeight: '700', textAlign: 'center' },
+  dangerButton: { minHeight: 44, paddingHorizontal: 12, borderRadius: 11, backgroundColor: '#a74235', alignItems: 'center', justifyContent: 'center' },
+  dangerButtonText: { color: '#ffffff', fontSize: 10, fontWeight: '700' },
+  dateRow: { flexDirection: 'row', gap: 8 },
+  flexInput: { flex: 1 },
+  disabled: { opacity: .42 },
   assignmentTitle: { color: 'white', fontSize: 13, fontWeight: '700' },
   flex: { flex: 1 },
   darkButton: { padding: 9, borderWidth: 1, borderColor: '#506158', borderRadius: 9 },
