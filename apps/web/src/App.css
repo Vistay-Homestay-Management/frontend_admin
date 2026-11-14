@@ -1371,6 +1371,8 @@ a { color: inherit; text-decoration: none; }
 .user-directory-tools { flex: 0 1 650px; display: flex; align-items: center; justify-content: flex-end; gap: 9px; }
 .user-directory-create { min-height: 46px; padding: 0 15px; border: 1px solid #12544f; border-radius: 6px; background: #12544f; color: #fff; display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-size: .66rem; font-weight: 680; white-space: nowrap; transition: background .2s ease, transform .2s ease; }
 .user-directory-create:hover { background: #092328; transform: translateY(-1px); }
+.user-directory-create.locked { border-color: #cad7d0; background: #eef3ef; color: #71827a; cursor: not-allowed; opacity: 1; }
+.user-directory-create.locked:hover { background: #eef3ef; transform: none; }
 .user-directory-board { overflow: visible; }
 .user-directory-list { overflow: visible; }
 button.user-directory-row { width: 100%; border: 0; border-bottom: 1px solid #e4ebe6; background: #fff; color: inherit; text-align: left; align-items: center; position: relative; }
@@ -1443,6 +1445,12 @@ button.user-directory-row:focus-visible { z-index: 4; }
 .identity-account-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
 .identity-account-heading h2 { max-width: 64rem; margin: 0 0 8px; font-size: clamp(1.8rem, 3vw, 3.35rem); line-height: 1; letter-spacing: -.055em; }
 .identity-account-heading p { margin: 0; color: var(--muted); font-size: .72rem; }
+.identity-capability-notice { padding: 10px 12px; border: 1px solid #d4ddd7; border-radius: 7px; background: #f6f8f5; color: #496158; display: flex; align-items: flex-start; gap: 9px; }
+.identity-capability-notice > svg { margin-top: 1px; flex: 0 0 auto; font-size: 1rem; }
+.identity-capability-notice div { display: grid; gap: 3px; }
+.identity-capability-notice strong { color: #173e39; font-size: .65rem; }
+.identity-capability-notice span { color: #6b7d75; display: flex; align-items: center; flex-wrap: wrap; gap: 4px; font-size: .55rem; }
+.identity-capability-notice code, .identity-policy-locked code { padding: 2px 5px; border-radius: 4px; background: #e4ebe6; color: #12544f; font-size: .5rem; }
 .identity-account-kpis { display: flex; align-items: center; gap: 7px; }
 .identity-account-kpis span { min-height: 43px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; font-size: .56rem; white-space: nowrap; }
 .identity-account-kpis strong { color: #092328; font-size: .82rem; }
@@ -1465,6 +1473,7 @@ button.user-directory-row:focus-visible { z-index: 4; }
 .identity-account-list article strong { font-size: .66rem; }
 .identity-account-list article small { color: var(--muted); font-size: .52rem; }
 .identity-row-actions { display: flex; gap: 5px; }
+.identity-action-locked { min-height: 32px; padding: 0 9px; border: 1px dashed #c5d1ca; border-radius: 5px; color: #7a8b82; display: inline-flex; align-items: center; gap: 5px; font-size: .52rem; font-weight: 620; white-space: nowrap; }
 .identity-row-actions button, .identity-review-queue article > div:last-child button { min-height: 32px; padding: 0 9px; border: 1px solid #c8d6ce; border-radius: 5px; background: #fff; color: #12544f; display: inline-flex; align-items: center; gap: 4px; font-size: .52rem; font-weight: 680; }
 .identity-row-actions button:last-child { border-color: #12544f; background: #12544f; color: #fff; }
 .identity-linked-state { color: #397455; display: inline-flex; align-items: center; gap: 5px; font-size: .53rem; }
@@ -1485,6 +1494,11 @@ button.user-directory-row:focus-visible { z-index: 4; }
 .identity-policy-card header span { color: #9fc0b2; }
 .identity-policy-card header h3 { color: #fff; }
 .identity-policy-card header > svg { color: #8bbb92; font-size: 1.5rem; }
+.identity-policy-locked { margin-top: 10px; padding: 15px; border: 1px dashed #c4d0c8; border-radius: 9px; background: #f4f7f4; color: #667a70; display: flex; align-items: center; gap: 10px; }
+.identity-policy-locked > svg { flex: 0 0 auto; color: #12544f; font-size: 1.3rem; }
+.identity-policy-locked div { display: grid; gap: 4px; }
+.identity-policy-locked strong { color: #173e39; font-size: .75rem; }
+.identity-policy-locked span { font-size: .58rem; }
 .identity-policy-options { margin-top: 15px; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); grid-auto-flow: dense; gap: 9px; }
 .identity-policy-options > label { grid-column: span 4; min-height: 88px; padding: 12px; border: 1px solid rgba(255,255,255,.17); border-radius: 7px; background: rgba(255,255,255,.07); display: flex; align-items: center; gap: 9px; }
 .identity-policy-options > label > span { min-width: 0; display: grid; gap: 5px; color: #b9d0c7; font-size: .54rem; }

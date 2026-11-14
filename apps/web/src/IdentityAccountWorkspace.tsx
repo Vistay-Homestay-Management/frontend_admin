@@ -81,6 +81,11 @@ export function IdentityAccountWorkspace({ graphqlUrl, authApiUrl, accessToken, 
   const canReject = viewer.permissions.includes('identity-link:reject')
   const canReadPolicy = viewer.permissions.includes('identity-policy:read')
   const canUpdatePolicy = viewer.permissions.includes('identity-policy:update')
+  const unavailableCapabilities = [
+    !canProvision ? copy.permission : undefined,
+    !canReadReviews ? 'identity-link:read' : undefined,
+    !canReadPolicy ? 'identity-policy:read' : undefined,
+  ].filter((permission): permission is string => Boolean(permission))
 
   const load = useCallback(async (signal?: AbortSignal) => {
     if (!canReadUsers) return
@@ -207,6 +212,13 @@ export function IdentityAccountWorkspace({ graphqlUrl, authApiUrl, accessToken, 
         <div className="identity-account-kpis"><span><strong>{linked.length}</strong> đã liên kết</span><span><strong>{unlinked.length}</strong> chưa có tài khoản</span><span><strong>{reviews.length}</strong> chờ duyệt</span></div>
       </header>
 
+      {unavailableCapabilities.length > 0 && (
+        <aside className="identity-capability-notice">
+          <LockKey />
+          <div><strong>Một số thao tác đang ở chế độ chỉ xem</strong><span>Role hiện tại chưa có {unavailableCapabilities.map((permission) => <code key={permission}>{permission}</code>)}.</span></div>
+        </aside>
+      )}
+
       {loading && <div className="inline-state"><SpinnerGap className="spinner" />Đang tải tài khoản…</div>}
       {error && <div className="inline-state error"><WarningCircle /><span>{error}</span><button onClick={() => void load()}><ArrowClockwise />Thử lại</button></div>}
 
@@ -220,7 +232,9 @@ export function IdentityAccountWorkspace({ graphqlUrl, authApiUrl, accessToken, 
                   <span className="identity-mini-avatar">{initials(entry.displayName) || <UserCircle />}</span>
                   <div><strong>{entry.displayName}</strong><small>{entry.email ?? 'Chưa có email để cấp tài khoản'}</small></div>
                   <div className="identity-row-actions">
-                    {canProvision && entry.email && <><button onClick={() => openAccount(entry, 'DIRECT')}><Plus />Tạo tài khoản</button><button onClick={() => openAccount(entry, 'INVITATION')}><PaperPlaneTilt />Gửi link</button></>}
+                    {canProvision && entry.email
+                      ? <><button onClick={() => openAccount(entry, 'DIRECT')}><Plus />Tạo tài khoản</button><button onClick={() => openAccount(entry, 'INVITATION')}><PaperPlaneTilt />Gửi link</button></>
+                      : <span className="identity-action-locked" title={entry.email ? `Cần quyền ${copy.permission}` : 'Hồ sơ cần email trước khi cấp tài khoản'}><LockKey />{entry.email ? 'Chỉ xem' : 'Thiếu email'}</span>}
                   </div>
                 </article>
               ))}
@@ -260,6 +274,13 @@ export function IdentityAccountWorkspace({ graphqlUrl, authApiUrl, accessToken, 
           </div>
           {policyMessage && <p className="identity-policy-message">{policyMessage}</p>}
           {canUpdatePolicy && <button className="identity-policy-save" disabled={policySaving || policyReason.trim().length < 8} onClick={() => void savePolicy()}>{policySaving ? <SpinnerGap className="spinner" /> : <CheckCircle />}Lưu policy</button>}
+        </section>
+      )}
+
+      {!canReadPolicy && (
+        <section className="identity-policy-locked">
+          <LockKey />
+          <div><strong>Chính sách đăng ký và liên kết</strong><span>Cần quyền <code>identity-policy:read</code> để xem cấu hình của portal {copy.title.toLowerCase()}.</span></div>
         </section>
       )}
 
