@@ -1731,3 +1731,23 @@ button.user-directory-row:focus-visible { background: #edf5eb; box-shadow: inset
   .role-policy-secondary { grid-template-columns: 1fr; }
   .role-policy-heading { align-items: flex-start; flex-direction: column; }
 }
+
+/* Role policy is intentionally separate from per-account assignments. */
+.role-policy-console { margin-top: 34px; }
+.role-policy-page-heading { min-height: 88px; padding: 16px 18px; border: 1px solid #cad8cf; border-radius: 7px; background: linear-gradient(120deg, #092328 0%, #12544f 100%); color: #fff; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.role-policy-page-heading .eyebrow { margin: 0 0 4px; color: #9fc0b2; font-size: .48rem; }
+.role-policy-page-heading h2 { margin: 0; font-size: clamp(1.35rem, 2.3vw, 2.15rem); line-height: 1; letter-spacing: -.04em; }
+.role-policy-page-heading div > p:last-child { margin: 6px 0 0; color: #bed1c8; font-size: .59rem; }
+.role-policy-page-heading > label { min-width: 170px; color: #a9c4b8; display: grid; gap: 5px; font-size: .5rem; font-weight: 650; }
+.role-policy-page-heading select { min-height: 38px; padding: 0 9px; border: 1px solid rgba(255,255,255,.22); border-radius: 5px; background: #173e39; color: #fff; font: inherit; font-size: .59rem; }
+.role-policy-console .role-policy-workspace { margin-top: 8px; }
+.role-policy-secondary > .role-create-card,
+.role-policy-secondary > .checker-card { grid-column: auto; }
+
+@media (max-width: 1050px) {
+  .role-policy-secondary { grid-template-columns: 1fr; }
+}
+@media (max-width: 680px) {
+  .role-policy-page-heading { align-items: stretch; flex-direction: column; }
+  .role-policy-page-heading > label { min-width: 0; }
+}

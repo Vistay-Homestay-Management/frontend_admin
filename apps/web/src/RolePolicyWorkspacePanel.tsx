@@ -165,7 +165,7 @@ export function RolePolicyWorkspacePanel({ graphqlUrl, accessToken, viewer, acco
   return (
     <section className="role-policy-workspace" ref={root} aria-label="Quản lý role và quyền">
       <header className="role-policy-heading">
-        <div><ShieldCheck weight="duotone" /><div><h3>Role &amp; quyền</h3><p>Chọn role, điều chỉnh quyền theo nhóm và gửi checker phê duyệt.</p></div></div>
+        <div><ShieldCheck weight="duotone" /><div><h3>Ma trận quyền</h3><p>Chọn role, điều chỉnh quyền theo nhóm và gửi checker phê duyệt.</p></div></div>
         <span>{permissions.length} quyền · {roles.filter((role) => role.active).length} role</span>
       </header>
 

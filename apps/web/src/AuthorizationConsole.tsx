@@ -39,6 +39,7 @@ interface AuthorizationConsoleProps {
   graphqlUrl: string
   accessToken: string
   viewer: BackofficeViewer
+  mode?: 'roles' | 'assignments'
 }
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error'
@@ -76,7 +77,7 @@ function makeIdempotencyKey(): string {
     : `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
-export function AuthorizationConsole({ graphqlUrl, accessToken, viewer }: AuthorizationConsoleProps) {
+export function AuthorizationConsole({ graphqlUrl, accessToken, viewer, mode = 'assignments' }: AuthorizationConsoleProps) {
   const root = useRef<HTMLElement>(null)
   const auditViewport = useRef<HTMLDivElement>(null)
   const [accountType, setAccountType] = useState<AccountType>('ADMIN')
@@ -156,10 +157,10 @@ export function AuthorizationConsole({ graphqlUrl, accessToken, viewer }: Author
   }
 
   useEffect(() => {
-    if (canRead) void loadWorkspace('ADMIN', viewer.accountId)
+    if (mode === 'assignments' && canRead) void loadWorkspace('ADMIN', viewer.accountId)
     // The signed-in account is the deliberate initial lookup target.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canRead, viewer.accountId])
+  }, [canRead, mode, viewer.accountId])
 
   function submitLookup(event: FormEvent) {
     event.preventDefault()
@@ -299,6 +300,18 @@ export function AuthorizationConsole({ graphqlUrl, accessToken, viewer }: Author
     auditViewport.current?.scrollBy({ left: direction * 360, behavior: 'smooth' })
   }
 
+  if (mode === 'roles') {
+    return (
+      <section className="authorization-console role-policy-console" id="role-policy" ref={root}>
+        <header className="role-policy-page-heading">
+          <div><p className="eyebrow">ROLE POLICY</p><h2>Role &amp; quyền</h2><p>Quản lý tập quyền theo từng nhóm nghiệp vụ. Mọi thay đổi vẫn đi qua maker–checker.</p></div>
+          <label>Đối tượng<select value={accountType} onChange={(event) => setAccountType(event.target.value as AccountType)}>{accountTypes.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label>
+        </header>
+        <RolePolicyWorkspacePanel graphqlUrl={graphqlUrl} accessToken={accessToken} viewer={viewer} accountType={accountType} />
+      </section>
+    )
+  }
+
   if (!canRead) {
     return (
       <section className="authorization-console authorization-locked" id="authorization">
@@ -316,8 +329,8 @@ export function AuthorizationConsole({ graphqlUrl, accessToken, viewer }: Author
     <section className="authorization-console" id="authorization" ref={root}>
       <header className="authorization-hero">
         <div>
-          <p className="eyebrow">PHÂN QUYỀN</p>
-          <h2>Tài khoản, role và phạm vi dữ liệu</h2>
+          <p className="eyebrow">GÁN QUYỀN</p>
+          <h2>Quyền theo tài khoản và phạm vi dữ liệu</h2>
           <p>Tra cứu một tài khoản để xem quyền hiệu lực, điều chỉnh phạm vi hoặc xử lý yêu cầu maker–checker.</p>
         </div>
         <form className="subject-search" onSubmit={submitLookup}>
@@ -337,8 +350,6 @@ export function AuthorizationConsole({ graphqlUrl, accessToken, viewer }: Author
           </button>
         </form>
       </header>
-
-      <RolePolicyWorkspacePanel graphqlUrl={graphqlUrl} accessToken={accessToken} viewer={viewer} accountType={accountType} />
 
       {loadState === 'error' && (
         <div className="authorization-alert error" role="alert">
