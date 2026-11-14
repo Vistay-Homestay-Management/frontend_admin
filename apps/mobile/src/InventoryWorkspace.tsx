@@ -30,7 +30,10 @@ interface InventoryWorkspaceProps {
   graphqlUrl: string
   accessToken: string
   viewer: BackofficeViewer
+  section?: InventorySection
 }
+
+export type InventorySection = 'map' | 'reservations' | 'check-in' | 'check-out'
 
 type LoadStatus = 'idle' | 'loading' | 'ready' | 'error'
 type ErrorCopy = { title: string; detail: string; code?: string }
@@ -38,6 +41,14 @@ type ErrorCopy = { title: string; detail: string; code?: string }
 const LOCAL_MANAGEMENT_PROPERTY = '61000000-0000-4000-8000-000000000010'
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const OPERATOR_TYPES: OperatorInventoryBlockType[] = ['MAINTENANCE', 'CLEANING', 'OWNER_USE', 'MANUAL']
+const BOOKING_TYPES: InventoryBlockType[] = ['BOOKING', 'CHANNEL']
+
+const sectionCopy: Record<InventorySection, { eyebrow: string; title: string; detail: string; countLabel: string }> = {
+  map: { eyebrow: 'SƠ ĐỒ PHÒNG', title: 'Sơ đồ booking', detail: 'Theo dõi tình trạng căn, block vận hành và thay đổi tồn phòng.', countLabel: 'Block hiệu lực' },
+  reservations: { eyebrow: 'ĐẶT PHÒNG', title: 'Đặt phòng', detail: 'Các booking và block từ kênh OTA trong khoảng ngày đang chọn.', countLabel: 'Đặt phòng' },
+  'check-in': { eyebrow: 'CHECK-IN', title: 'Check-in', detail: 'Các lượt khách bắt đầu lưu trú trong khoảng ngày đang chọn.', countLabel: 'Lượt đến' },
+  'check-out': { eyebrow: 'CHECK-OUT', title: 'Check out', detail: 'Các lượt khách kết thúc lưu trú trong khoảng ngày đang chọn.', countLabel: 'Lượt đi' },
+}
 
 const typeLabels: Record<InventoryBlockType, string> = {
   BOOKING: 'Đặt phòng',
@@ -158,7 +169,30 @@ function BlockCard({ block, onPress }: { block: InventoryBlockManagementNode; on
   )
 }
 
-export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: InventoryWorkspaceProps) {
+function BookingOperationList({ blocks, section, fromDate, toDateExclusive, onSelect }: {
+  blocks: InventoryBlockManagementNode[]
+  section: Exclude<InventorySection, 'map'>
+  fromDate: string
+  toDateExclusive: string
+  onSelect: (block: InventoryBlockManagementNode) => void
+}) {
+  const title = section === 'reservations' ? 'Đặt phòng trong khoảng'
+    : section === 'check-in' ? 'Lịch khách đến' : 'Lịch khách rời đi'
+  const emptyCopy = section === 'reservations' ? 'Chưa có đặt phòng trong khoảng đang chọn.'
+    : section === 'check-in' ? 'Không có lượt check-in trong khoảng đang chọn.'
+      : 'Không có lượt check-out trong khoảng đang chọn.'
+  return <View style={styles.operations}>
+    <View style={styles.listHeader}><View><Text style={styles.sectionTitle}>{title}</Text><Text style={styles.muted}>{fromDate} → {toDateExclusive}</Text></View><Text style={styles.count}>{blocks.length}</Text></View>
+    {blocks.map((block) => <Pressable accessibilityRole="button" key={block.inventoryBlockId} onPress={() => onSelect(block)} style={({ pressed }) => [styles.operationCard, pressed && styles.pressed]}>
+      <View style={styles.operationTopline}><Text style={styles.operationId}>{shortId(block.inventoryBlockId)}</Text><Text style={styles.statusPill}>{statusLabels[block.status]}</Text></View>
+      <Text style={styles.operationDates}>{block.startDate} → {block.endDateExclusive}</Text>
+      <View style={styles.operationMeta}><Text style={styles.muted}>{Math.max(1, dateDistance(block.startDate, block.endDateExclusive))} đêm</Text><Text style={styles.muted}>{block.type === 'CHANNEL' ? block.channelProvider || 'OTA' : 'Trực tiếp'}</Text></View>
+    </Pressable>)}
+    {!blocks.length && <View style={styles.empty}><Text style={styles.emptyTitle}>{emptyCopy}</Text><Text style={styles.muted}>Thử mở rộng khoảng ngày hoặc kiểm tra lại mã căn.</Text></View>}
+  </View>
+}
+
+export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, section = 'map' }: InventoryWorkspaceProps) {
   const today = useMemo(() => isoToday(), [])
   const [propertyId, setPropertyId] = useState(LOCAL_MANAGEMENT_PROPERTY)
   const [fromDate, setFromDate] = useState(today)
@@ -178,9 +212,11 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
   const [commandStatus, setCommandStatus] = useState<'idle' | 'loading'>('idle')
   const [commandError, setCommandError] = useState<ErrorCopy>()
   const mounted = useRef(true)
+  const requestEpoch = useRef(0)
   const canManage = viewer.permissions.includes('inventory:block')
 
   const load = useCallback(async (quiet = false): Promise<InventoryBlockManagementPage | undefined> => {
+    const epoch = ++requestEpoch.current
     const normalizedId = propertyId.trim().toLowerCase()
     const validation = validateWindow(normalizedId, fromDate, toDateExclusive)
     if (validation) {
@@ -196,6 +232,7 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
           propertyId: normalizedId,
           fromDate,
           toDateExclusive,
+          types: section === 'map' ? undefined : BOOKING_TYPES,
           first: 100,
         }),
         fetchPropertyAvailability(graphqlUrl, accessToken, normalizedId, fromDate, toDateExclusive),
@@ -205,26 +242,29 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
         || nextPage.propertyMembershipVersion !== observation.propertyMembershipVersion) {
         throw new Error('Hai phép đọc không cùng revision hoặc phân vùng. Hãy làm mới trước khi thao tác.')
       }
-      if (!mounted.current) return undefined
+      if (!mounted.current || epoch !== requestEpoch.current) return undefined
       setPage(nextPage)
       setAvailability(observation)
       setSelectedBlock((current) => nextPage.nodes.find((node) => node.inventoryBlockId === current?.inventoryBlockId))
       setStatus('ready')
       return nextPage
     } catch (reason) {
-      if (!mounted.current) return undefined
+      if (!mounted.current || epoch !== requestEpoch.current) return undefined
       setError(toErrorCopy(reason))
       setStatus('error')
       return undefined
     }
-  }, [accessToken, fromDate, graphqlUrl, propertyId, toDateExclusive])
+  }, [accessToken, fromDate, graphqlUrl, propertyId, section, toDateExclusive])
 
   const initialLoad = useRef(load)
 
   useEffect(() => {
     mounted.current = true
     queueMicrotask(() => void initialLoad.current())
-    return () => { mounted.current = false }
+    return () => {
+      mounted.current = false
+      requestEpoch.current += 1
+    }
   }, [])
 
   useEffect(() => {
@@ -233,6 +273,16 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
     })
     return () => subscription.remove()
   }, [load, page])
+
+  const previousSection = useRef(section)
+  useEffect(() => {
+    if (previousSection.current === section) return
+    previousSection.current = section
+    setPage(undefined)
+    setAvailability(undefined)
+    setSelectedBlock(undefined)
+    void load()
+  }, [load, section])
 
   async function refreshBeforeCommand(): Promise<InventoryBlockManagementPage | undefined> {
     setNotice('Đang xác minh revision mới nhất trước khi ghi…')
@@ -319,19 +369,29 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
 
   const active = page?.nodes.filter((node) => node.status === 'ACTIVE' || node.status === 'TENTATIVE') ?? []
   const history = page?.nodes.filter((node) => node.status === 'RELEASED' || node.status === 'CANCELLED') ?? []
+  const bookingBlocks = page?.nodes.filter((node) => BOOKING_TYPES.includes(node.type)
+    && (node.status === 'ACTIVE' || node.status === 'TENTATIVE')) ?? []
+  const sectionBlocks = bookingBlocks.filter((node) => {
+    if (section === 'reservations') return true
+    if (section === 'check-in') return node.startDate >= fromDate && node.startDate < toDateExclusive
+    if (section === 'check-out') return node.endDateExclusive > fromDate && node.endDateExclusive < toDateExclusive
+    return false
+  })
+  const copy = sectionCopy[section]
 
   return (
     <View style={styles.workspace}>
       <View style={styles.heading}>
         <View style={styles.headingCopy}>
-          <Text style={styles.eyebrow}>TỒN PHÒNG THEO CĂN</Text>
-          <Text style={styles.title}>Rõ khoảng trống.{`\n`}Chắc từng lệnh ghi.</Text>
+          <Text style={styles.eyebrow}>{copy.eyebrow}</Text>
+          <Text style={styles.title}>{copy.title}.{`\n`}Chắc từng lệnh ghi.</Text>
+          <Text style={styles.headingDetail}>{copy.detail}</Text>
         </View>
         <Pressable
           accessibilityRole="button"
-          disabled={!canManage || !page}
+          disabled={!canManage || !page || section !== 'map'}
           onPress={() => { setCreateOpen(true); setCommandError(undefined) }}
-          style={({ pressed }) => [styles.createButton, (!canManage || !page) && styles.disabled, pressed && styles.pressed]}
+          style={({ pressed }) => [styles.createButton, (!canManage || !page || section !== 'map') && styles.disabled, pressed && styles.pressed]}
         >
           <Text style={styles.createButtonText}>Tạo block</Text>
         </Pressable>
@@ -368,8 +428,8 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
               <Text style={styles.summaryNote}>{availability?.overlaps.length ?? 0} khoảng giao nhau</Text>
             </View>
             <View style={styles.summaryCard}>
-              <Text style={styles.summaryLabel}>BLOCK HIỆU LỰC</Text>
-              <Text style={styles.summaryNumber}>{active.length}</Text>
+              <Text style={styles.summaryLabel}>{copy.countLabel.toUpperCase()}</Text>
+              <Text style={styles.summaryNumber}>{section === 'map' ? active.length : sectionBlocks.length}</Text>
               <Text style={styles.summaryNote}>Revision {page.inventoryRevision}</Text>
             </View>
           </View>
@@ -380,15 +440,20 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer }: Inventor
           </View>
           {page.pageInfo.hasNextPage && <Text accessibilityRole="alert" style={styles.notice}>Kết quả vượt quá 100 block. Hãy thu hẹp khoảng ngày trước khi thao tác.</Text>}
 
-          <View style={styles.listHeader}><Text style={styles.sectionTitle}>Đang hiệu lực</Text><Text style={styles.count}>{active.length}</Text></View>
-          {active.length ? active.map((block) => <BlockCard key={block.inventoryBlockId} block={block} onPress={() => { setSelectedBlock(block); setCommandError(undefined) }} />) : (
-            <View style={styles.empty}><Text style={styles.emptyTitle}>Không có block hiệu lực</Text><Text style={styles.muted}>Khoảng ngày này hiện không có block đang hoạt động.</Text></View>
-          )}
+          {section === 'map' && <>
+            <View style={styles.listHeader}><Text style={styles.sectionTitle}>Đang hiệu lực</Text><Text style={styles.count}>{active.length}</Text></View>
+            {active.length ? active.map((block) => <BlockCard key={block.inventoryBlockId} block={block} onPress={() => { setSelectedBlock(block); setCommandError(undefined) }} />) : (
+              <View style={styles.empty}><Text style={styles.emptyTitle}>Không có block hiệu lực</Text><Text style={styles.muted}>Khoảng ngày này hiện không có block đang hoạt động.</Text></View>
+            )}
+          </>}
 
-          <View style={styles.listHeader}><Text style={styles.sectionTitle}>Lịch sử</Text><Text style={styles.count}>{history.length}</Text></View>
-          {history.length ? history.map((block) => <BlockCard key={block.inventoryBlockId} block={block} onPress={() => { setSelectedBlock(block); setCommandError(undefined) }} />) : (
-            <View style={styles.empty}><Text style={styles.emptyTitle}>Chưa có lịch sử</Text><Text style={styles.muted}>Block đã release hoặc hủy sẽ xuất hiện tại đây.</Text></View>
-          )}
+          {section === 'map' && <>
+            <View style={styles.listHeader}><Text style={styles.sectionTitle}>Lịch sử</Text><Text style={styles.count}>{history.length}</Text></View>
+            {history.length ? history.map((block) => <BlockCard key={block.inventoryBlockId} block={block} onPress={() => { setSelectedBlock(block); setCommandError(undefined) }} />) : (
+              <View style={styles.empty}><Text style={styles.emptyTitle}>Chưa có lịch sử</Text><Text style={styles.muted}>Block đã release hoặc hủy sẽ xuất hiện tại đây.</Text></View>
+            )}
+          </>}
+          {section !== 'map' && <BookingOperationList blocks={sectionBlocks} section={section} fromDate={fromDate} toDateExclusive={toDateExclusive} onSelect={(block) => { setSelectedBlock(block); setCommandError(undefined) }} />}
         </>
       ) : null}
 
@@ -433,6 +498,7 @@ const styles = StyleSheet.create({
   workspace: { marginTop: 34 },
   heading: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   headingCopy: { flex: 1 },
+  headingDetail: { marginTop: 7, color: '#68756e', fontSize: 11, lineHeight: 17 },
   eyebrow: { color: '#68756e', fontSize: 10, fontWeight: '700', letterSpacing: 1.4 },
   title: { marginTop: 8, color: '#17231d', fontSize: 30, lineHeight: 31, fontWeight: '700', letterSpacing: -1.4 },
   createButton: { minHeight: 44, paddingHorizontal: 15, borderRadius: 12, backgroundColor: '#17231d', alignItems: 'center', justifyContent: 'center' },
@@ -475,6 +541,12 @@ const styles = StyleSheet.create({
   statusPillHistory: { backgroundColor: '#dedfd9', color: '#68756e' },
   blockDates: { marginTop: 9, color: '#3d654f', fontSize: 11, fontWeight: '600' },
   blockReason: { marginTop: 5, color: '#68756e', fontSize: 11, lineHeight: 16 },
+  operations: { marginTop: 5 },
+  operationCard: { marginBottom: 9, padding: 15, borderRadius: 15, borderWidth: 1, borderColor: '#d9ddd7', backgroundColor: '#fffef9' },
+  operationTopline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  operationId: { color: '#17231d', fontSize: 12, fontWeight: '700' },
+  operationDates: { marginTop: 9, color: '#3d654f', fontSize: 12, fontWeight: '700' },
+  operationMeta: { marginTop: 7, flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
   empty: { padding: 22, borderRadius: 15, borderWidth: 1, borderStyle: 'dashed', borderColor: '#cfd4cd', alignItems: 'center' },
   emptyTitle: { color: '#17231d', fontSize: 13, fontWeight: '700', marginBottom: 5 },
   modalBackdrop: { flex: 1, paddingTop: 80, justifyContent: 'flex-end', backgroundColor: 'rgba(12, 22, 16, .48)' },

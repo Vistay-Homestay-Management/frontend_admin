@@ -96,6 +96,30 @@ function renderedText(node: unknown): string {
   return ''
 }
 
+function localDate(offset: number): string {
+  const now = new Date()
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000)
+  local.setUTCDate(local.getUTCDate() + offset)
+  return local.toISOString().slice(0, 10)
+}
+
+function bookingNode(id: string, startOffset: number, endOffset: number) {
+  return {
+    inventoryBlockId: id,
+    propertyId: '61000000-0000-4000-8000-000000000010',
+    type: 'BOOKING' as const,
+    status: 'ACTIVE' as const,
+    startDate: localDate(startOffset),
+    endDateExclusive: localDate(endOffset),
+    reason: null,
+    channelProvider: null,
+    blockVersion: '1',
+    createdAt: '2026-11-01T00:00:00Z',
+    updatedAt: '2026-11-01T00:00:00Z',
+    releasedAt: null,
+  }
+}
+
 describe('InventoryWorkspace', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -159,6 +183,72 @@ describe('InventoryWorkspace', () => {
     expect(output).toContain('Hai phép đọc không cùng revision hoặc phân vùng')
     expect(inventoryMocks.createInventoryBlock).not.toHaveBeenCalled()
     expect(inventoryMocks.releaseInventoryBlock).not.toHaveBeenCalled()
+    await act(async () => renderer.unmount())
+  })
+
+  it('loads booking operation sections with booking/channel filters', async () => {
+    const renderer = createRoot({ textComponentTypes: ['Text'] })
+    await act(async () => {
+      renderer.render(<InventoryWorkspace graphqlUrl="/graphql" accessToken="token" section="reservations" viewer={viewer} />)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(inventoryMocks.fetchInventoryBlocks).toHaveBeenCalledWith(
+      '/graphql',
+      'token',
+      expect.objectContaining({ types: ['BOOKING', 'CHANNEL'] }),
+    )
+    await act(async () => renderer.unmount())
+  })
+
+  it('keeps check-out filtering half-open at toDateExclusive', async () => {
+    inventoryMocks.fetchInventoryBlocks.mockResolvedValueOnce({
+      ...page,
+      nodes: [bookingNode('booking-inside', 2, 13), bookingNode('booking-boundary', 2, 14)],
+    })
+    const renderer = createRoot({ textComponentTypes: ['Text'] })
+    await act(async () => {
+      renderer.render(<InventoryWorkspace graphqlUrl="/graphql" accessToken="token" section="check-out" viewer={viewer} />)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const output = renderedText(renderer.container.toJSON())
+    expect(output).toContain('booking-inside')
+    expect(output).not.toContain('booking-boundary')
+    await act(async () => renderer.unmount())
+  })
+
+  it('ignores an older section response that finishes after the selected section', async () => {
+    let resolveMap!: (value: typeof page) => void
+    const mapResponse = new Promise<typeof page>((resolve) => { resolveMap = resolve })
+    inventoryMocks.fetchInventoryBlocks
+      .mockReturnValueOnce(mapResponse)
+      .mockResolvedValueOnce({ ...page, nodes: [bookingNode('booking-current', 1, 3)] })
+
+    const renderer = createRoot({ textComponentTypes: ['Text'] })
+    await act(async () => {
+      renderer.render(<InventoryWorkspace graphqlUrl="/graphql" accessToken="token" section="map" viewer={viewer} />)
+      await Promise.resolve()
+    })
+    expect(inventoryMocks.fetchInventoryBlocks).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      renderer.render(<InventoryWorkspace graphqlUrl="/graphql" accessToken="token" section="reservations" viewer={viewer} />)
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(inventoryMocks.fetchInventoryBlocks).toHaveBeenCalledTimes(2)
+    expect(renderedText(renderer.container.toJSON())).toContain('booking-current')
+
+    await act(async () => {
+      resolveMap(page)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(renderedText(renderer.container.toJSON())).toContain('booking-current')
     await act(async () => renderer.unmount())
   })
 })
