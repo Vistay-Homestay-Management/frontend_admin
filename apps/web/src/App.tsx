@@ -142,11 +142,11 @@ const userSections: Array<{ value: UserDirectorySection; label: string }> = [
   { value: 'hosts', label: 'Chủ nhà' },
 ]
 
-type IdentitySection = IdentityAccountSection | 'roles'
+type IdentitySection = IdentityAccountSection | 'roles' | 'assignments'
 
 function pageFromHash(): AdminPage {
   const raw = window.location.hash.replace(/^#/, '').split('?')[0]
-  if (['identity-customers', 'identity-hosts', 'identity-admins', 'authorization'].includes(raw)) return 'identity'
+  if (['identity-customers', 'identity-hosts', 'identity-admins', 'authorization', 'authorization-assignments'].includes(raw)) return 'identity'
   const page = raw as AdminPage
   return page in pageTitles ? page : 'overview'
 }
@@ -155,6 +155,7 @@ function identitySectionFromHash(): IdentitySection {
   const raw = window.location.hash.replace(/^#/, '').split('?')[0]
   if (raw === 'identity-hosts') return 'hosts'
   if (raw === 'identity-admins') return 'admins'
+  if (raw === 'authorization-assignments') return 'assignments'
   if (raw === 'authorization') return 'roles'
   return 'customers'
 }
@@ -294,6 +295,7 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
                 <button type="button" role="tab" className={identitySection === 'hosts' ? 'active' : ''} aria-selected={identitySection === 'hosts'} onClick={() => setIdentitySection('hosts')}>Chủ nhà</button>
                 <button type="button" role="tab" className={identitySection === 'admins' ? 'active' : ''} aria-selected={identitySection === 'admins'} onClick={() => setIdentitySection('admins')}>Nhân viên</button>
                 <button type="button" role="tab" className={identitySection === 'roles' ? 'active' : ''} aria-selected={identitySection === 'roles'} onClick={() => setIdentitySection('roles')}>Role & quyền</button>
+                <button type="button" role="tab" className={identitySection === 'assignments' ? 'active' : ''} aria-selected={identitySection === 'assignments'} onClick={() => setIdentitySection('assignments')}>Gán quyền</button>
               </>
             )}
           </div>
@@ -399,7 +401,7 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
 
             {activePage === 'notifications' && <NotificationInbox model={inbox} />}
 
-            {activePage === 'identity' && identitySection !== 'roles' && <>
+            {activePage === 'identity' && identitySection !== 'roles' && identitySection !== 'assignments' && <>
               <IdentityAccountWorkspace
                 graphqlUrl={config.graphqlUrl}
                 authApiUrl={config.authApiUrl}
@@ -417,6 +419,13 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
               graphqlUrl={config.graphqlUrl}
               accessToken={accessToken}
               viewer={profile.viewer}
+              mode="roles"
+            />}
+            {activePage === 'identity' && identitySection === 'assignments' && <AuthorizationConsole
+              graphqlUrl={config.graphqlUrl}
+              accessToken={accessToken}
+              viewer={profile.viewer}
+              mode="assignments"
             />}
             {activePage === 'configuration' && <DynamicConfigurationWorkspace graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} />}
             {activePage === 'templates' && <NotificationTemplateWorkspace graphqlUrl={config.graphqlUrl} accessToken={accessToken} />}
