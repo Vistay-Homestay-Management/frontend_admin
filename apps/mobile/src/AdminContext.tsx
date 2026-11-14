@@ -2,12 +2,16 @@ import { createContext, useContext, type PropsWithChildren } from 'react'
 import type { BackofficeViewer } from '@vistay/admin-api-client'
 import type { MobileConfig } from './config'
 import type { NotificationInboxModel } from './useBackofficeData'
+import type { MobileRuntime } from './mobileRuntime'
 
-interface AdminContextValue {
+export interface AdminContextValue {
   accessToken: string
+  authorizationReady?: boolean
   config: MobileConfig
   inbox: NotificationInboxModel
+  isRevalidating?: boolean
   retryViewer: () => void
+  runtime: MobileRuntime
   viewer: BackofficeViewer
 }
 

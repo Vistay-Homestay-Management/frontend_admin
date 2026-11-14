@@ -76,3 +76,15 @@ available.
 `packages/api-client` owns the exact Viewer and NotificationStream operations,
 the incremental SSE parser, error handling, and notification deduplication used
 by both applications.
+
+## Admin Mobile continuation
+
+See [mobile integration](docs/mobile/integration.md) for the pinned common/leaf
+patch chain (`common-setup.patch`, `agent-1-inventory-v2.patch`,
+`agent-1-integration-v2.patch`, `agent-3-booking-docs-v2.patch`,
+`agent-4-pricing-final.patch`), runtime and viewer readiness, verification
+commands, and native gates. See [Inventory acceptance](docs/mobile/inventory.md)
+for observation freshness, session-scoped mutation guards, and SCRUM-541
+acceptance; see [Booking mobile spec](docs/mobile/booking.md) and
+[Pricing mobile spec](docs/mobile/pricing.md) for blocked-gate handoffs.
+Mobile tests are discovered with `npm run test:mobile`; the root build remains Web-only.

@@ -1,0 +1,50 @@
+# Admin Mobile integration — local mode
+
+Baseline: `f50195bd210a72be19b3c369f93cb1a850e1dae8`.
+Common setup: `common-setup.patch`, SHA-256 `c6f126b4f9380573b6957dd42a1085502ca087f71ab60846036b0a3891d7a3dd`.
+Inventory delta: `agent-1-inventory-v2.patch` (three inventory-owned paths only; SHA-256 `39e42f982b3c5c9555658c3f09b1466b6b41d453abdf4cf2ac8ada0c6ba5ada1`).
+Integration delta: `agent-1-integration-v2.patch` (five integration-owned paths only).
+Booking docs delta: `agent-3-booking-docs-v2.patch` (`docs/mobile/booking.md`; SHA-256 `a153126f9f1a35db6aec2962534645625fac9cf2ffc490169c8cd7a43ab9a6c8`).
+Pricing docs delta: `agent-4-pricing-final.patch` (`docs/mobile/pricing.md`; SHA-256 `498375a354ec272611cee83cfdb59d503f10575f7a6ef40165a3a2c3e38d1e5d`).
+
+The shell mounts one `useMobileRuntime` subscription. Inventory receives the real runtime, never a default-online shim. When only `refreshEpoch` or `retry` increments on the same `(graphqlUrl, accessToken)`, `useViewer` retains the ready viewer continuously for read-only display while setting `authorizationReady: false` during background revalidation. Write operations (create/release) in `InventoryWorkspace` remain locked until the authoritative viewer for the current epoch resolves. Changing `graphqlUrl` or `accessToken` or failing background revalidation fails closed immediately. `InventoryWorkspace` is keyed by `accountId:authorizationVersion` and `BackofficeScreen` preserves per-`accountId` Inventory `pending` and `unknownOutcome` session locks across tab switches/remounts (clearing them on logout or screen unmount). Under the Expo Router architecture (PR #40), `BookingScreen` is mounted at `apps/mobile/src/app/(admin)/booking.tsx` wrapping `InventoryWorkspace`, while route tests reside cleanly outside the route tree at `apps/mobile/src/__tests__/booking.test.tsx` to prevent accidental router indexing. Notification hooks are unchanged.
+
+## Local commands
+
+Run from this integration worktree, not `frontend_admin`:
+
+```sh
+npm run typecheck
+npm run lint
+npm run test:mobile
+npm test
+npm run build
+```
+
+`test:mobile` discovers all mobile source tests. `npm test` preserves workspace and Web suites. `build` is Web-only, not an Android artifact.
+
+Dependencies already installed under this worktree's `node_modules`; no new package/global runtime is installed by this continuation.
+
+## Native gate
+
+Set real, approved public endpoints in `apps/mobile/.env` using `.env.example`. Example `.example` endpoints are intentionally nonfunctional and must not be represented as live configuration. Device URLs must resolve from Android; localhost is not the PC. Use the approved public OIDC client and `vistay-admin://oauth/callback`; never add a client secret.
+
+With the approved Compose `full` environment, synthetic inventory fixtures and a connected Android device/emulator, run:
+
+```sh
+npm run android --workspace @vistay/admin-mobile
+```
+
+Then verify login/callback, scoped list/detail/history, create/release operator blocks, stale revision, double tap, airplane mode, background/resume, logout/account switching and server correlation/idempotency evidence. Do not change backend/Router/contracts here. Android SDK/JDK availability is not proof of a native build or TEST-03. No device was visible to `adb devices -l` during continuation; native smoke is blocked. No production credentials or data were used.
+
+## Gates and rollback
+
+Inventory automated unit/component test evidence, Web production build, and native runtime verification represent separate evidentiary gates:
+- Automated tests (`test:mobile`, `npm test`, `typecheck`, `lint`) prove component safety and contract constraints in Node.js.
+- Web build (`npm run build`) produces the admin web bundle only; it does not build or verify the native Android artifact.
+- Native `TEST-03` / `G-DEVICE` requires a connected Android device or emulator with reachable services and remains unverified until device execution.
+- Downstream domains: Booking remains `BLOCKED_CONTRACT`/`UPSTREAM` and Pricing `BLOCKED_PERMISSION`/`UPSTREAM` until authoritative upstream contracts/permissions are published; no client-side aliases or synthetic production mocks are introduced.
+
+Under the 1 Task = 1 PR lifecycle, changes for SCRUM-541 are committed on `feature/SCRUM-541-mobile-integration` for PR review and promotion into `dev`, with Codeowner reviewer `@QuanTrieuPCYT`. Jira workflow transitions remain held pending explicit review. If rollback of committed work is required:
+- Prior to PR merge: Revert the specific feature implementation commits on this feature branch within the isolated worktree (or close PR #41). Never execute a naked `git revert` on merge commit `1661d7a` because it connects upstream `origin/dev` Expo Router and SCRUM-831 history.
+- Post-merge on dev: Codeowner @QuanTrieuPCYT executes a governed PR revert via the GitHub interface or `git revert -m 1 <pr_merge_commit>` on `dev`. Never reset, checkout, or clean the original `frontend_admin` checkout or working tree.
