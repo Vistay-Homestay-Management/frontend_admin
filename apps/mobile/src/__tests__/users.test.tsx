@@ -20,6 +20,12 @@ vi.mock('expo-crypto', () => ({ randomUUID: () => 'mobile-users-idempotency-key'
 vi.mock('expo/fetch', () => ({ fetch: vi.fn() }))
 vi.mock('react-native', () => ({
   ActivityIndicator: 'ActivityIndicator',
+  Animated: {
+    Value: class AnimatedValue { value: number; constructor(value: number) { this.value = value } interpolate() { return {} } },
+    View: 'AnimatedView',
+    timing: () => ({ start: (complete?: () => void) => complete?.() }),
+  },
+  Easing: { cubic: 'cubic', out: (value: unknown) => value },
   FlatList: ({ data = [], renderItem, ListHeaderComponent, ListEmptyComponent, ListFooterComponent, ...props }: {
     data?: unknown[]
     renderItem: (input: { item: unknown; index: number }) => ReactNode
@@ -33,12 +39,15 @@ vi.mock('react-native', () => ({
   ),
   KeyboardAvoidingView: 'KeyboardAvoidingView',
   Modal: ({ visible, children, ...props }: { visible: boolean; children?: ReactNode }) => visible ? createElement('Modal', props, children) : null,
+  PanResponder: { create: () => ({ panHandlers: {} }) },
   Platform: { OS: 'android' },
   Pressable: 'Pressable',
+  RefreshControl: 'RefreshControl',
   ScrollView: 'ScrollView',
   StyleSheet: { create: <T,>(styles: T) => styles, absoluteFill: {} },
   Text: 'Text',
   TextInput: 'TextInput',
+  useWindowDimensions: () => ({ width: 424, height: 948, scale: 1, fontScale: 1 }),
   View: 'View',
 }))
 

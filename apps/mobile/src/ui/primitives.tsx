@@ -1,7 +1,58 @@
-import type { ReactNode } from 'react'
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
+import { useRef, useState, type ReactNode } from 'react'
+import { ActivityIndicator, Pressable, StyleSheet, Text, useWindowDimensions, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { palette, radii } from './theme'
+
+export function useWorkspaceScrollGate() {
+  const offsetRef = useRef(0)
+  const refreshEnabledRef = useRef(true)
+  const armRefreshOnNextTouch = useRef(false)
+  const headerHiddenRef = useRef(false)
+  const [refreshEnabled, setRefreshEnabled] = useState(true)
+  const [headerHidden, setHeaderHidden] = useState(false)
+
+  function updateRefreshEnabled(next: boolean) {
+    if (refreshEnabledRef.current === next) return
+    refreshEnabledRef.current = next
+    setRefreshEnabled(next)
+  }
+
+  function updateHeaderHidden(next: boolean) {
+    if (headerHiddenRef.current === next) return
+    headerHiddenRef.current = next
+    setHeaderHidden(next)
+  }
+
+  function onScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
+    const offset = Math.max(0, event.nativeEvent.contentOffset.y)
+    offsetRef.current = offset
+    if (offset >= 56) updateHeaderHidden(true)
+    else if (offset <= 1) updateHeaderHidden(false)
+    if (offset > 1) {
+      armRefreshOnNextTouch.current = false
+      updateRefreshEnabled(false)
+    }
+  }
+
+  function onTouchStart() {
+    if (!armRefreshOnNextTouch.current || offsetRef.current > 1) return
+    armRefreshOnNextTouch.current = false
+    updateRefreshEnabled(true)
+  }
+
+  function onScrollBeginDrag(event: NativeSyntheticEvent<NativeScrollEvent>) {
+    if (event.nativeEvent.contentOffset.y > 1) updateRefreshEnabled(false)
+  }
+
+  function onScrollEndDrag(event: NativeSyntheticEvent<NativeScrollEvent>) {
+    offsetRef.current = Math.max(0, event.nativeEvent.contentOffset.y)
+    if (offsetRef.current <= 1 && !refreshEnabledRef.current) armRefreshOnNextTouch.current = true
+  }
+
+  return { headerHidden, refreshEnabled, onMomentumScrollEnd: onScrollEndDrag, onScroll, onScrollBeginDrag, onScrollEndDrag, onTouchStart }
+}
+
+export type WorkspaceScrollGate = ReturnType<typeof useWorkspaceScrollGate>
 
 export function PageHeading({ eyebrow: _eyebrow, title, detail, action }: {
   eyebrow?: string
@@ -44,12 +95,16 @@ export function Metric({ label, value, tone = 'plain', icon }: {
   </View>
 }
 
-export function Segmented<T extends string>({ options, value, onChange }: {
+export function Segmented<T extends string>({ options, value, onChange, horizontalInset = 18 }: {
   options: { label: string; value: T }[]
   value: T
   onChange: (value: T) => void
+  horizontalInset?: number
 }) {
-  return <View accessibilityRole="tablist" style={styles.segmented}>
+  const { width } = useWindowDimensions()
+  const availableWidth = Math.max(0, width - horizontalInset * 2)
+  const segmentWidth = Math.max(72, (availableWidth - 7 * 3) / 4)
+  return <View accessibilityRole="tablist" style={[styles.segmented, { minWidth: availableWidth }]}>
     {options.map((option) => {
       const selected = option.value === value
       return <Pressable
@@ -57,7 +112,7 @@ export function Segmented<T extends string>({ options, value, onChange }: {
         accessibilityState={{ selected }}
         key={option.value}
         onPress={() => onChange(option.value)}
-        style={[styles.segment, selected && styles.segmentActive]}
+        style={[styles.segment, { width: segmentWidth }, selected && styles.segmentActive]}
       >
         <Text style={[styles.segmentText, selected && styles.segmentTextActive]}>{option.label}</Text>
       </Pressable>
@@ -76,7 +131,7 @@ export function LoadState({ error, retry }: { error?: string; retry?: () => void
 
 export const pageStyles = StyleSheet.create({
   scroll: { flex: 1 },
-  content: { paddingHorizontal: 18, paddingTop: 22, paddingBottom: 48, gap: 18 },
+  content: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 48, gap: 18 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   half: { width: '48.4%' },
 })
@@ -99,7 +154,7 @@ const styles = StyleSheet.create({
   metricValue: { color: palette.ink, fontSize: 23, fontWeight: '700', letterSpacing: -.8 },
   metricTextLight: { color: palette.white },
   segmented: { flexDirection: 'row', gap: 7 },
-  segment: { minWidth: 86, minHeight: 40, paddingHorizontal: 11, borderWidth: 1, borderColor: palette.line, borderRadius: radii.small, backgroundColor: palette.white, alignItems: 'center', justifyContent: 'center' },
+  segment: { height: 40, paddingHorizontal: 8, borderWidth: 1, borderColor: palette.line, borderRadius: radii.small, backgroundColor: palette.white, alignItems: 'center', justifyContent: 'center' },
   segmentActive: { borderColor: palette.ink, backgroundColor: palette.ink },
   segmentText: { color: palette.muted, fontSize: 11, fontWeight: '600' },
   segmentTextActive: { color: palette.white, fontWeight: '700' },

@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Ionicons } from '@expo/vector-icons'
 import { fetch as expoFetch } from 'expo/fetch'
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import {
   createAdminBooking, createUserProfile, fetchAdminBookings, fetchPropertyPortfolio, fetchUserDirectory, transitionAdminBooking,
   type AdminBookingRecord, type PropertyUnitRecord, type UserDirectoryEntry,
@@ -9,7 +9,7 @@ import {
 import type { InventorySection } from '../../InventoryWorkspace'
 import { MobileBookingTimeline } from '../../MobileBookingTimeline'
 import { useAdmin } from '../../AdminContext'
-import { LoadState, Segmented, pageStyles } from '../../ui/primitives'
+import { LoadState, Segmented, pageStyles, useWorkspaceScrollGate, type WorkspaceScrollGate } from '../../ui/primitives'
 import { palette, radii } from '../../ui/theme'
 
 const mobileFetch = expoFetch as typeof globalThis.fetch
@@ -20,17 +20,85 @@ const statusLabels: Record<string, string> = { PENDING_CONFIRMATION: 'Chờ xác
 export default function BookingScreen() {
   const { accessToken, authorizationReady, config, isRevalidating, runtime, viewer } = useAdmin()
   const [section, setSection] = useState<InventorySection>('map')
-  return <ScrollView style={pageStyles.scroll} contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
-    <View style={styles.command}><View><Text style={styles.commandTitle}>Booking</Text><Text style={styles.commandMeta}>Đặt phòng và vận hành lưu trú</Text></View></View>
-    <ScrollView horizontal showsHorizontalScrollIndicator={false}><Segmented options={[{ label: 'Sơ đồ', value: 'map' }, { label: 'Đặt phòng', value: 'reservations' }, { label: 'Check-in', value: 'check-in' }, { label: 'Check-out', value: 'check-out' }]} value={section} onChange={setSection} /></ScrollView>
-    {isRevalidating && !authorizationReady && <Text style={styles.authorizationNotice}>Đang xác minh quyền tài khoản sau kết nối</Text>}
-    {!runtime.isOnline || !runtime.isActive ? <LoadState error={!runtime.isOnline ? 'Thiết bị đang ngoại tuyến.' : 'Ứng dụng đang ở nền.'} />
-      : section === 'map' ? <MobileBookingTimeline accessToken={accessToken} graphqlUrl={config.graphqlUrl} viewer={viewer} />
-        : <MobileBookingWorkspace accessToken={accessToken} authorizationReady={Boolean(authorizationReady)} graphqlUrl={config.graphqlUrl} section={section} viewer={viewer} />}
+  const [refreshEpoch, setRefreshEpoch] = useState(0)
+  const [refreshing, setRefreshing] = useState(false)
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const scrollGate = useWorkspaceScrollGate()
+  const refreshActiveWorkspace = useCallback(() => {
+    setRefreshing(true)
+    setRefreshEpoch((current) => current + 1)
+    if (refreshTimer.current) clearTimeout(refreshTimer.current)
+    refreshTimer.current = setTimeout(() => setRefreshing(false), 650)
+  }, [])
+  useEffect(() => () => { if (refreshTimer.current) clearTimeout(refreshTimer.current) }, [])
+
+  const heading = <View style={styles.command}><View><Text style={styles.commandTitle}>Booking</Text><Text style={styles.commandMeta}>Đặt phòng và vận hành lưu trú</Text></View></View>
+  const tabs = <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.sectionTabs}><Segmented horizontalInset={14} options={[{ label: 'Sơ đồ', value: 'map' }, { label: 'Đặt phòng', value: 'reservations' }, { label: 'Check-in', value: 'check-in' }, { label: 'Check-out', value: 'check-out' }]} value={section} onChange={setSection} /></ScrollView>
+  const authorizationNotice = isRevalidating && !authorizationReady ? <Text style={styles.authorizationNotice}>Đang xác minh quyền tài khoản sau kết nối</Text> : null
+
+  if (section === 'map' && runtime.isOnline && runtime.isActive) return <MobileBookingTimeline
+    key={`map-${refreshEpoch}`}
+    accessToken={accessToken}
+    graphqlUrl={config.graphqlUrl}
+    viewer={viewer}
+    onRefresh={refreshActiveWorkspace}
+    refreshing={refreshing}
+    scrollGate={scrollGate}
+    topContent={heading}
+    stickyTopContent={<>{tabs}{authorizationNotice}</>}
+  />
+
+  if (!runtime.isOnline || !runtime.isActive) return <BookingWorkspaceShell heading={heading} onRefresh={refreshActiveWorkspace} refreshing={refreshing} scrollGate={scrollGate} stickyTopContent={<>{tabs}{authorizationNotice}</>}>
+    <LoadState error={!runtime.isOnline ? 'Thiết bị đang ngoại tuyến.' : 'Ứng dụng đang ở nền.'} />
+  </BookingWorkspaceShell>
+
+  return <MobileBookingWorkspace
+    key={`${section}-${refreshEpoch}`}
+    accessToken={accessToken}
+    authorizationReady={Boolean(authorizationReady)}
+    graphqlUrl={config.graphqlUrl}
+    heading={heading}
+    onRefresh={refreshActiveWorkspace}
+    refreshing={refreshing}
+    scrollGate={scrollGate}
+    section={section as Exclude<InventorySection, 'map'>}
+    stickyTopContent={<>{tabs}{authorizationNotice}</>}
+    viewer={viewer}
+  />
+}
+
+function BookingWorkspaceShell({ children, heading, onRefresh, refreshing, scrollGate, stickyTopContent }: { children: ReactNode; heading: ReactNode; onRefresh: () => void; refreshing: boolean; scrollGate: WorkspaceScrollGate; stickyTopContent: ReactNode }) {
+  const [initialOffset] = useState(() => scrollGate.headerHidden ? 56 : 0)
+  const initialOffsetPending = useRef(initialOffset > 0)
+  const [viewportHeight, setViewportHeight] = useState(0)
+  function handleScroll(event: Parameters<WorkspaceScrollGate['onScroll']>[0]) {
+    if (initialOffsetPending.current) {
+      if (event.nativeEvent.contentOffset.y < initialOffset - 1) return
+      initialOffsetPending.current = false
+    }
+    scrollGate.onScroll(event)
+  }
+  return <ScrollView
+    refreshControl={<RefreshControl enabled={scrollGate.refreshEnabled} refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.evergreen} />}
+    stickyHeaderIndices={[1]}
+    style={pageStyles.scroll}
+    contentContainerStyle={[styles.page, viewportHeight > 0 && { minHeight: viewportHeight + 56 }]}
+    contentOffset={{ x: 0, y: initialOffset }}
+    onLayout={(event) => setViewportHeight(Math.round(event.nativeEvent.layout.height))}
+    onScroll={handleScroll}
+    onTouchStart={scrollGate.onTouchStart}
+    onScrollBeginDrag={scrollGate.onScrollBeginDrag}
+    onScrollEndDrag={scrollGate.onScrollEndDrag}
+    onMomentumScrollEnd={scrollGate.onMomentumScrollEnd}
+    scrollEventThrottle={16}
+  >
+    <View style={styles.headingSlot}>{heading}</View>
+    <View style={styles.simpleStickyWorkspace}>{stickyTopContent}</View>
+    <View style={styles.resultsSlot}>{children}</View>
   </ScrollView>
 }
 
-function MobileBookingWorkspace({ accessToken, authorizationReady, graphqlUrl, section, viewer }: { accessToken: string; authorizationReady: boolean; graphqlUrl: string; section: Exclude<InventorySection, 'map'>; viewer: ReturnType<typeof useAdmin>['viewer'] }) {
+function MobileBookingWorkspace({ accessToken, authorizationReady, graphqlUrl, heading, onRefresh, refreshing, scrollGate, section, stickyTopContent, viewer }: { accessToken: string; authorizationReady: boolean; graphqlUrl: string; heading: ReactNode; onRefresh: () => void; refreshing: boolean; scrollGate: WorkspaceScrollGate; section: Exclude<InventorySection, 'map'>; stickyTopContent: ReactNode; viewer: ReturnType<typeof useAdmin>['viewer'] }) {
   const [bookings, setBookings] = useState<AdminBookingRecord[]>([])
   const [properties, setProperties] = useState<PropertyUnitRecord[]>([])
   const [customers, setCustomers] = useState<UserDirectoryEntry[]>([])
@@ -40,6 +108,9 @@ function MobileBookingWorkspace({ accessToken, authorizationReady, graphqlUrl, s
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string>()
   const [notice, setNotice] = useState<string>()
+  const [initialOffset] = useState(() => scrollGate.headerHidden ? 56 : 0)
+  const initialOffsetPending = useRef(initialOffset > 0)
+  const [viewportHeight, setViewportHeight] = useState(0)
   const canCreate = authorizationReady && viewer.permissions.includes('booking:create')
 
   const load = useCallback(async () => {
@@ -58,12 +129,45 @@ function MobileBookingWorkspace({ accessToken, authorizationReady, graphqlUrl, s
   useEffect(() => { void Promise.resolve().then(load) }, [load])
   const visible = useMemo(() => { const query = search.trim().toLocaleLowerCase('vi'); return bookings.filter((booking) => (section === 'reservations' || (section === 'check-in' && ['PENDING_CONFIRMATION', 'HELD', 'CONFIRMED'].includes(booking.status)) || (section === 'check-out' && booking.status === 'CHECKED_IN')) && (!query || `${booking.bookingCode} ${booking.guestName} ${booking.propertyName ?? ''}`.toLocaleLowerCase('vi').includes(query))) }, [bookings, search, section])
   const today = new Date().toISOString().slice(0, 10)
-  return <View style={styles.workspace}>
-    <View style={styles.workspaceCommand}><View><Text style={styles.workspaceTitle}>{section === 'reservations' ? 'Đặt phòng' : section === 'check-in' ? 'Check-in' : 'Check-out'}</Text><Text style={styles.workspaceMeta}>{visible.length} bản ghi</Text></View>{canCreate && <Pressable onPress={() => setCreateOpen(true)} style={styles.add}><Ionicons color={palette.white} name="add" size={20} /></Pressable>}</View>
-    <View style={styles.search}><Ionicons color={palette.evergreen} name="search" size={17} /><TextInput value={search} onChangeText={setSearch} placeholder="Mã booking, khách hoặc căn" placeholderTextColor={palette.muted} style={styles.searchInput} /></View>
-    {notice && <Text style={styles.notice}>{notice}</Text>}
-    <View style={styles.metrics}><Metric label="Booking" value={visible.length} /><Metric label="Đến hôm nay" value={bookings.filter((item) => item.checkInDate === today && item.status === 'CONFIRMED').length} /><Metric label="Rời hôm nay" value={bookings.filter((item) => item.checkOutDate === today && item.status === 'CHECKED_IN').length} /></View>
-    {loading ? <LoadState /> : error ? <LoadState error={error} retry={() => void load()} /> : <View style={styles.list}>{visible.map((booking) => <Pressable key={booking.id} onPress={() => setSelected(booking)} style={({ pressed }) => [styles.bookingCard, pressed && styles.pressed]}><View style={styles.bookingTop}><Text style={styles.bookingCode}>{booking.bookingCode}</Text><Text style={[styles.status, statusStyle(booking.status)]}>{statusLabels[booking.status] ?? booking.status}</Text></View><View style={styles.bookingGuest}><Ionicons color={palette.leaf} name="person-outline" size={16} /><View><Text style={styles.bookingName}>{booking.guestName}</Text><Text style={styles.bookingMeta}>{booking.guestPhone || booking.guestEmail || 'Chưa có liên hệ'}</Text></View></View><View style={styles.bookingBottom}><Text numberOfLines={1} style={styles.bookingProperty}>{booking.propertyName || booking.propertyId}</Text><Text style={styles.bookingDates}>{booking.checkInDate} → {booking.checkOutDate}</Text></View></Pressable>)}{!visible.length && <View style={styles.empty}><Ionicons color={palette.sage} name="calendar-outline" size={28} /><Text style={styles.emptyTitle}>Không có booking phù hợp</Text></View>}</View>}
+  const arrivals = visible.filter((item) => item.checkInDate === today).length
+  const departures = visible.filter((item) => item.checkOutDate === today).length
+  function handleScroll(event: Parameters<WorkspaceScrollGate['onScroll']>[0]) {
+    if (initialOffsetPending.current) {
+      if (event.nativeEvent.contentOffset.y < initialOffset - 1) return
+      initialOffsetPending.current = false
+    }
+    scrollGate.onScroll(event)
+  }
+  return <View style={pageStyles.scroll}>
+    <ScrollView
+      refreshControl={<RefreshControl enabled={scrollGate.refreshEnabled} refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.evergreen} />}
+      stickyHeaderIndices={[1]}
+      style={pageStyles.scroll}
+      contentContainerStyle={[styles.page, viewportHeight > 0 && { minHeight: viewportHeight + 56 }]}
+      contentOffset={{ x: 0, y: initialOffset }}
+      keyboardShouldPersistTaps="handled"
+      onLayout={(event) => setViewportHeight(Math.round(event.nativeEvent.layout.height))}
+      onScroll={handleScroll}
+      onTouchStart={scrollGate.onTouchStart}
+      onScrollBeginDrag={scrollGate.onScrollBeginDrag}
+      onScrollEndDrag={scrollGate.onScrollEndDrag}
+      onMomentumScrollEnd={scrollGate.onMomentumScrollEnd}
+      scrollEventThrottle={16}
+    >
+      <View style={styles.headingSlot}>{heading}</View>
+      <View style={styles.stickyWorkspace}>
+        <View style={styles.stickyTopSlot}>{stickyTopContent}</View>
+        <View style={styles.alignedRail}>
+          <View style={styles.wideSlot}><View style={styles.metricPair}><Metric label="Đến" value={arrivals} /><Metric label="Rời" value={departures} /></View></View>
+          <View style={styles.doubleNarrowSlot}><View style={styles.search}><Ionicons color={palette.evergreen} name="search" size={15} /><TextInput value={search} onChangeText={setSearch} placeholder="Tìm booking..." placeholderTextColor={palette.muted} style={styles.searchInput} /></View></View>
+          <View style={styles.lastNarrowSlot}><Pressable disabled={!canCreate} onPress={() => setCreateOpen(true)} style={({ pressed }) => [styles.createButton, !canCreate && styles.disabled, pressed && canCreate && styles.pressed]}><Text adjustsFontSizeToFit minimumFontScale={.75} numberOfLines={1} style={styles.createButtonText}>Tạo booking</Text></Pressable></View>
+        </View>
+      </View>
+      <View style={styles.resultsBody}>
+        {notice && <Text style={styles.notice}>{notice}</Text>}
+        {loading ? <LoadState /> : error ? <LoadState error={error} retry={() => void load()} /> : <View style={styles.list}>{visible.map((booking) => <Pressable key={booking.id} onPress={() => setSelected(booking)} style={({ pressed }) => [styles.bookingCard, pressed && styles.pressed]}><View style={styles.bookingTop}><Text style={styles.bookingCode}>{booking.bookingCode}</Text><Text style={[styles.status, statusStyle(booking.status)]}>{statusLabels[booking.status] ?? booking.status}</Text></View><View style={styles.bookingGuest}><Ionicons color={palette.leaf} name="person-outline" size={16} /><View><Text style={styles.bookingName}>{booking.guestName}</Text><Text style={styles.bookingMeta}>{booking.guestPhone || booking.guestEmail || 'Chưa có liên hệ'}</Text></View></View><View style={styles.bookingBottom}><Text numberOfLines={1} style={styles.bookingProperty}>{booking.propertyName || booking.propertyId}</Text><Text style={styles.bookingDates}>{booking.checkInDate} → {booking.checkOutDate}</Text></View></Pressable>)}{!visible.length && <View style={styles.empty}><Ionicons color={palette.sage} name="calendar-outline" size={28} /><Text style={styles.emptyTitle}>Không có booking phù hợp</Text></View>}</View>}
+      </View>
+    </ScrollView>
     <BookingDetail visible={Boolean(selected)} booking={selected} viewer={authorizationReady ? viewer : { ...viewer, permissions: [] }} graphqlUrl={graphqlUrl} accessToken={accessToken} onClose={() => setSelected(undefined)} onUpdated={(updated, text) => { setBookings((current) => current.map((item) => item.id === updated.id ? updated : item)); setSelected(updated); setNotice(text) }} />
     <BookingCreate visible={createOpen} properties={properties} customers={customers} setCustomers={setCustomers} canCreateCustomer={authorizationReady && viewer.permissions.includes('customer-profile:create')} graphqlUrl={graphqlUrl} accessToken={accessToken} onClose={() => setCreateOpen(false)} onSaved={() => { setCreateOpen(false); setNotice('Đã tạo booking và giữ tồn phòng.'); void load() }} />
   </View>
@@ -94,11 +198,10 @@ function Field(props: React.ComponentProps<typeof TextInput> & { label: string }
 function ChoiceField({ label, value, options, onChange }: { label: string; value: string; options: { value: string; label: string }[]; onChange: (value: string) => void }) { return <View style={styles.field}><Text style={styles.fieldLabel}>{label}</Text><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.choices}>{options.map((option) => <Pressable key={option.value} onPress={() => onChange(option.value)} style={[styles.choice, value === option.value && styles.choiceActive]}><Text numberOfLines={1} style={[styles.choiceText, value === option.value && styles.choiceTextActive]}>{option.label}</Text></Pressable>)}</ScrollView></View> }
 
 const styles = StyleSheet.create({
-  page: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 42, gap: 12 }, command: { minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, commandTitle: { color: palette.ink, fontSize: 18, fontWeight: '700' }, commandMeta: { marginTop: 2, color: palette.muted, fontSize: 9 },
+  page: { flexGrow: 1, paddingHorizontal: 14, paddingTop: 14, paddingBottom: 42 }, headingSlot: { marginBottom: 0 }, stickyWorkspace: { zIndex: 4, paddingTop: 12, paddingBottom: 12, backgroundColor: palette.background }, simpleStickyWorkspace: { zIndex: 4, paddingTop: 12, paddingBottom: 12, backgroundColor: palette.background }, stickyTopSlot: { marginBottom: 8 }, resultsSlot: { flexGrow: 1 }, resultsBody: { flexGrow: 1, gap: 8 }, sectionTabs: { height: 40, flexGrow: 0 }, command: { minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, commandTitle: { color: palette.ink, fontSize: 18, fontWeight: '700' }, commandMeta: { marginTop: 2, color: palette.muted, fontSize: 9 },
   authorizationNotice: { padding: 10, borderRadius: radii.small, backgroundColor: '#E7F0E4', color: palette.evergreen, fontSize: 10 },
-  workspace: { gap: 10 }, workspaceCommand: { minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, workspaceTitle: { color: palette.ink, fontSize: 16, fontWeight: '700' }, workspaceMeta: { marginTop: 2, color: palette.muted, fontSize: 9 }, add: { width: 40, height: 40, borderRadius: radii.small, backgroundColor: palette.ink, alignItems: 'center', justifyContent: 'center' },
-  search: { minHeight: 44, paddingHorizontal: 11, borderWidth: 1.5, borderColor: palette.leaf, borderRadius: radii.small, backgroundColor: palette.white, flexDirection: 'row', alignItems: 'center', gap: 8 }, searchInput: { flex: 1, color: palette.ink, fontSize: 11 }, notice: { padding: 10, borderRadius: radii.small, backgroundColor: '#E7F0E4', color: palette.evergreen, fontSize: 10 },
-  metrics: { flexDirection: 'row', gap: 7 }, metric: { flex: 1, minHeight: 54, padding: 8, borderWidth: 1, borderColor: palette.line, borderRadius: radii.small, backgroundColor: palette.white, justifyContent: 'space-between' }, metricLabel: { color: palette.muted, fontSize: 8 }, metricValue: { color: palette.ink, fontSize: 18, fontWeight: '700' },
+  alignedRail: { width: '100%', height: 40, flexDirection: 'row' }, wideSlot: { width: '31%', paddingRight: 5 }, doubleNarrowSlot: { width: '46%', paddingRight: 5 }, lastNarrowSlot: { width: '23%' }, metricPair: { flex: 1, flexDirection: 'row', gap: 4 }, metric: { minWidth: 0, flex: 1, height: 40, paddingHorizontal: 6, borderRadius: radii.small, backgroundColor: palette.ink, justifyContent: 'center' }, metricLabel: { color: '#B9D0C7', fontSize: 9, fontWeight: '600' }, metricValue: { marginTop: 1, color: palette.white, fontSize: 13, fontWeight: '700' },
+  search: { flex: 1, height: 40, paddingHorizontal: 8, borderWidth: 1.5, borderColor: palette.controlLine, borderRadius: radii.small, backgroundColor: palette.white, flexDirection: 'row', alignItems: 'center', gap: 5 }, searchInput: { minWidth: 0, flex: 1, paddingVertical: 0, color: palette.ink, fontSize: 11, fontWeight: '600' }, createButton: { flex: 1, height: 40, paddingHorizontal: 5, borderRadius: radii.small, backgroundColor: palette.evergreen, alignItems: 'center', justifyContent: 'center' }, createButtonText: { color: palette.white, fontSize: 11, fontWeight: '700' }, notice: { padding: 10, borderRadius: radii.small, backgroundColor: '#E7F0E4', color: palette.evergreen, fontSize: 10 },
   list: { gap: 8 }, bookingCard: { padding: 11, borderWidth: 1, borderColor: palette.line, borderRadius: radii.small, backgroundColor: palette.white, gap: 10 }, bookingTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }, bookingCode: { color: palette.ink, fontSize: 12, fontWeight: '800' }, status: { paddingHorizontal: 7, paddingVertical: 4, borderRadius: 4, overflow: 'hidden', fontSize: 8, fontWeight: '700' }, statusOk: { backgroundColor: '#E1EFE0', color: palette.leaf }, statusPending: { backgroundColor: '#F5EBD7', color: '#866524' }, statusDanger: { backgroundColor: '#F8E5DF', color: palette.danger }, bookingGuest: { flexDirection: 'row', alignItems: 'center', gap: 8 }, bookingName: { color: palette.ink, fontSize: 11, fontWeight: '700' }, bookingMeta: { marginTop: 2, color: palette.muted, fontSize: 9 }, bookingBottom: { paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.line, flexDirection: 'row', justifyContent: 'space-between', gap: 10 }, bookingProperty: { flex: 1, color: palette.evergreen, fontSize: 9, fontWeight: '600' }, bookingDates: { color: palette.muted, fontSize: 9 }, pressed: { opacity: .68 }, empty: { minHeight: 180, alignItems: 'center', justifyContent: 'center', gap: 8 }, emptyTitle: { color: palette.ink, fontSize: 12, fontWeight: '700' },
   backdrop: { flex: 1, justifyContent: 'flex-end', paddingTop: 60, backgroundColor: 'rgba(9,35,40,.5)' }, sheet: { maxHeight: '92%', borderTopLeftRadius: 16, borderTopRightRadius: 16, backgroundColor: palette.background }, sheetContent: { padding: 16, paddingBottom: 34, gap: 12 }, sheetHeader: { minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, sheetTitle: { color: palette.ink, fontSize: 19, fontWeight: '700' }, sheetMeta: { marginTop: 3, color: palette.muted, fontSize: 9 }, detailGuest: { padding: 11, borderRadius: radii.small, backgroundColor: palette.white, flexDirection: 'row', alignItems: 'center', gap: 10 }, detailGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, detail: { width: '48.7%', padding: 10, borderWidth: 1, borderColor: palette.line, borderRadius: radii.small, backgroundColor: palette.white, gap: 4 }, detailLabel: { color: palette.muted, fontSize: 8 }, detailValue: { color: palette.ink, fontSize: 10, fontWeight: '700' }, actionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, action: { minHeight: 44, paddingHorizontal: 13, borderRadius: radii.small, backgroundColor: palette.evergreen, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }, actionDanger: { borderWidth: 1, borderColor: '#D9AAA1', backgroundColor: palette.white }, actionText: { color: palette.white, fontSize: 10, fontWeight: '700' }, actionTextDanger: { color: palette.danger },
   field: { gap: 6 }, fieldLabel: { color: palette.evergreen, fontSize: 10, fontWeight: '700' }, input: { minHeight: 44, paddingHorizontal: 11, borderWidth: 1, borderColor: palette.line, borderRadius: radii.small, backgroundColor: palette.white, color: palette.ink, fontSize: 12 }, choices: { gap: 6 }, choice: { maxWidth: 210, minHeight: 40, paddingHorizontal: 11, borderWidth: 1, borderColor: palette.line, borderRadius: radii.small, backgroundColor: palette.white, alignItems: 'center', justifyContent: 'center' }, choiceActive: { borderColor: palette.evergreen, backgroundColor: palette.evergreen }, choiceText: { color: palette.muted, fontSize: 10 }, choiceTextActive: { color: palette.white, fontWeight: '700' }, inlineButton: { minHeight: 40, borderWidth: 1, borderColor: palette.sage, borderRadius: radii.small, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }, inlineText: { color: palette.evergreen, fontSize: 10, fontWeight: '700' }, inlineForm: { padding: 10, borderRadius: radii.small, backgroundColor: '#EAF2E7', gap: 10 }, submit: { minHeight: 47, borderRadius: radii.small, backgroundColor: palette.evergreen, alignItems: 'center', justifyContent: 'center' }, submitText: { color: palette.white, fontSize: 12, fontWeight: '700' }, disabled: { opacity: .42 }, error: { padding: 10, borderRadius: radii.small, backgroundColor: '#FFF0EC', color: palette.danger, fontSize: 10 },

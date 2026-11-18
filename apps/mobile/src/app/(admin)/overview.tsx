@@ -3,7 +3,7 @@ import { fetch as expoFetch } from 'expo/fetch'
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { fetchOverviewDashboard, type OverviewDashboardData, type OverviewView } from '@vistay/admin-api-client'
 import { useAdmin } from '../../AdminContext'
-import { LoadState, Metric, PageHeading, SectionHeading, Segmented, Surface, pageStyles } from '../../ui/primitives'
+import { LoadState, Metric, PageHeading, SectionHeading, Segmented, Surface, pageStyles, useWorkspaceScrollGate } from '../../ui/primitives'
 import { palette } from '../../ui/theme'
 
 const mobileFetch = expoFetch as typeof globalThis.fetch
@@ -33,6 +33,7 @@ export default function OverviewScreen() {
   const [data, setData] = useState<OverviewDashboardData>()
   const [error, setError] = useState<string>()
   const [loading, setLoading] = useState(true)
+  const scrollGate = useWorkspaceScrollGate()
   const canReadAnalytics = viewer.permissions.includes('analytics:read')
   const canReadFinance = viewer.permissions.includes('finance:read')
 
@@ -67,15 +68,23 @@ export default function OverviewScreen() {
   const booking = data?.booking
   const revenue = booking?.money[0]
   return <ScrollView
-    refreshControl={<RefreshControl refreshing={loading && Boolean(data)} onRefresh={() => void load()} tintColor={palette.evergreen} />}
+    refreshControl={<RefreshControl enabled={scrollGate.refreshEnabled} refreshing={loading && Boolean(data)} onRefresh={() => void load()} tintColor={palette.evergreen} />}
     style={pageStyles.scroll}
-    contentContainerStyle={pageStyles.content}
+    contentContainerStyle={styles.scrollContent}
+    stickyHeaderIndices={[1]}
+    onScroll={scrollGate.onScroll}
+    onTouchStart={scrollGate.onTouchStart}
+    onScrollBeginDrag={scrollGate.onScrollBeginDrag}
+    onScrollEndDrag={scrollGate.onScrollEndDrag}
+    onMomentumScrollEnd={scrollGate.onMomentumScrollEnd}
+    scrollEventThrottle={16}
   >
-    <PageHeading eyebrow="Điều hành" title="Tổng quan" detail="Chỉ số vận hành chính" />
-    <Segmented options={[{ label: 'Hệ thống', value: 'SYSTEM' }, { label: 'Cá nhân', value: 'PERSONAL' }]} value={view} onChange={setView} />
-    <Segmented options={[{ label: '7 ngày', value: '7' }, { label: '30 ngày', value: '30' }, { label: '90 ngày', value: '90' }]} value={days} onChange={setDays} />
-
-    {loading && !data ? <LoadState /> : error ? <LoadState error={error} retry={() => void load()} /> : <>
+    <View><PageHeading eyebrow="Điều hành" title="Tổng quan" detail="Chỉ số vận hành chính" /></View>
+    <View style={styles.stickyWorkspace}>
+      <View style={styles.stickyRowSpacing}><Segmented options={[{ label: 'Hệ thống', value: 'SYSTEM' }, { label: 'Cá nhân', value: 'PERSONAL' }]} value={view} onChange={setView} /></View>
+      <Segmented options={[{ label: '7 ngày', value: '7' }, { label: '30 ngày', value: '30' }, { label: '90 ngày', value: '90' }]} value={days} onChange={setDays} />
+    </View>
+    <View style={styles.body}>{loading && !data ? <LoadState /> : error ? <LoadState error={error} retry={() => void load()} /> : <>
       <View style={pageStyles.grid}>
         <View style={pageStyles.half}><Metric icon="calendar-outline" label="Tổng booking" value={integer(booking?.totalBookings)} /></View>
         <View style={pageStyles.half}><Metric icon="trending-up-outline" label="Doanh thu" value={money(revenue?.revenue, revenue?.currency)} tone="dark" /></View>
@@ -114,7 +123,7 @@ export default function OverviewScreen() {
       </View> : null}
 
       {data?.errors.length ? <View style={styles.warning}><Text style={styles.warningTitle}>Một số nguồn đang gián đoạn</Text><Text style={styles.warningText}>{data.errors.join('\n')}</Text></View> : null}
-    </>}
+    </>}</View>
   </ScrollView>
 }
 
@@ -123,6 +132,10 @@ function Row({ label, value, alert = false }: { label: string; value: string; al
 }
 
 const styles = StyleSheet.create({
+  scrollContent: { flexGrow: 1, paddingHorizontal: 18, paddingTop: 18, paddingBottom: 48 },
+  stickyWorkspace: { zIndex: 4, paddingTop: 18, paddingBottom: 18, backgroundColor: palette.background },
+  stickyRowSpacing: { marginBottom: 18 },
+  body: { flexGrow: 1, gap: 18 },
   section: { gap: 10 },
   row: { minHeight: 36, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.line },
   rowLabel: { color: palette.muted, fontSize: 11 },

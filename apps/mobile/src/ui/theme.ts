@@ -6,6 +6,7 @@ export const palette = {
   background: '#F5F7F3',
   surface: '#FFFFFF',
   surfaceMuted: '#EDF2EC',
+  controlLine: '#D4E6D5',
   line: '#D8E2DA',
   muted: '#64766D',
   white: '#FFFFFF',

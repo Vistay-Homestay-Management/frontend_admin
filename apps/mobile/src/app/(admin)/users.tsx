@@ -8,6 +8,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -26,7 +27,7 @@ import {
   type UserProfileDetails,
 } from '@vistay/admin-api-client'
 import { useAdmin } from '../../AdminContext'
-import { LoadState, Segmented } from '../../ui/primitives'
+import { LoadState, Segmented, useWorkspaceScrollGate } from '../../ui/primitives'
 import { palette, radii } from '../../ui/theme'
 
 // Short GraphQL operations should use React Native's native fetch. `expo/fetch`
@@ -34,6 +35,7 @@ import { palette, radii } from '../../ui/theme'
 // but using it for ordinary requests on the same screen as the long-lived SSE
 // stream can delay dispatch on physical Android devices.
 const mobileFetch = globalThis.fetch
+const USER_CONTROLS = '__user_controls__' as const
 
 type AvailabilityState = 'idle' | 'checking' | 'available' | 'duplicate' | 'error'
 
@@ -454,10 +456,12 @@ export default function UsersScreen() {
   const [profileLoading, setProfileLoading] = useState(false)
   const [profileError, setProfileError] = useState<string>()
   const [creating, setCreating] = useState(false)
+  const [listViewportHeight, setListViewportHeight] = useState(0)
   const profileCache = useRef(new Map<string, UserProfileDetails>())
   const profileRequest = useRef<AbortController | null>(null)
   const allowed = viewer.permissions.includes('user:read')
   const canCreate = viewer.permissions.includes(typeCopy[type].createPermission) && authorizationReady !== false
+  const scrollGate = useWorkspaceScrollGate()
 
   const load = useCallback(async (cursor: string | null = null, signal?: AbortSignal) => {
     if (!allowed) {
@@ -512,51 +516,62 @@ export default function UsersScreen() {
 
   const missingAccounts = useMemo(() => nodes.filter((node) => !node.accountId).length, [nodes])
 
-  const header = <View style={styles.header}>
-    <View style={styles.workspaceHeading}><Text style={styles.workspaceTitle}>Người dùng</Text><Text style={styles.workspaceMeta}>Hồ sơ và thông tin liên hệ</Text></View>
-    <Segmented options={[{ label: 'Khách hàng', value: 'CUSTOMER' }, { label: 'Nhân viên', value: 'ADMIN' }, { label: 'Chủ nhà', value: 'HOST' }]} value={type} onChange={(nextType) => {
+  const heading = <View style={styles.workspaceHeading}><Text style={styles.workspaceTitle}>Người dùng</Text><Text style={styles.workspaceMeta}>Hồ sơ và thông tin liên hệ</Text></View>
+  const controls = <View style={styles.stickyWorkspace}>
+    <View style={styles.tabsSpacing}><Segmented horizontalInset={14} options={[{ label: 'Khách hàng', value: 'CUSTOMER' }, { label: 'Nhân viên', value: 'ADMIN' }, { label: 'Chủ nhà', value: 'HOST' }]} value={type} onChange={(nextType) => {
       setSelected(null)
       setProfile(null)
       setCreating(false)
       setType(nextType)
-    }} />
-    <View style={styles.summaryRow}>
-      <Summary label="Tổng hồ sơ" value={total} />
-      <Summary label="Đang hiển thị" value={nodes.length} />
-      <Summary label="Chưa tài khoản" value={missingAccounts} />
+    }} /></View>
+    <View style={styles.alignedRail}>
+      <View style={styles.wideSlot}><View style={styles.metricPair}>
+        <Summary label="Hồ sơ" value={total} />
+        <Summary label="Chưa TK" value={missingAccounts} />
+      </View></View>
+      <View style={styles.doubleNarrowSlot}><View style={styles.search}>
+        <Ionicons color={palette.evergreen} name="search-outline" size={15} />
+        <TextInput autoCapitalize="none" onChangeText={setSearch} placeholder={`Tìm ${typeCopy[type].label.toLowerCase()}…`} placeholderTextColor={palette.muted} style={styles.searchInput} value={search} />
+        {search ? <Pressable accessibilityLabel="Xóa tìm kiếm" hitSlop={7} onPress={() => setSearch('')}><Ionicons color={palette.muted} name="close-circle" size={16} /></Pressable> : null}
+      </View></View>
+      <View style={styles.lastNarrowSlot}><Pressable accessibilityLabel={typeCopy[type].createLabel} disabled={!canCreate} onPress={() => setCreating(true)} style={({ pressed }) => [styles.addButton, !canCreate && styles.buttonDisabled, pressed && canCreate && styles.buttonPressed]}>
+        <Text numberOfLines={1} style={styles.addButtonText}>Thêm hồ sơ</Text>
+      </Pressable></View>
     </View>
-    <View style={styles.toolsRow}>
-      <View style={styles.search}>
-        <Ionicons color={palette.muted} name="search-outline" size={19} />
-        <TextInput autoCapitalize="none" onChangeText={setSearch} placeholder={`Tìm ${typeCopy[type].label.toLowerCase()}…`} placeholderTextColor="#7D8E85" style={styles.searchInput} value={search} />
-        {search ? <Pressable accessibilityLabel="Xóa tìm kiếm" hitSlop={7} onPress={() => setSearch('')}><Ionicons color={palette.muted} name="close-circle" size={18} /></Pressable> : null}
-      </View>
-      <Pressable accessibilityLabel={typeCopy[type].createLabel} disabled={!canCreate} onPress={() => setCreating(true)} style={[styles.addButton, !canCreate && styles.buttonDisabled]}>
-        <Ionicons color={palette.white} name={canCreate ? 'add' : 'lock-closed-outline'} size={21} />
-        <Text style={styles.addButtonText}>Thêm</Text>
-      </Pressable>
-    </View>
-    <View style={styles.listHeading}><Text style={styles.listTitle}>{typeCopy[type].label}</Text><Text style={styles.listHint}>Chạm để xem nhanh</Text></View>
   </View>
+  const listData = useMemo<(typeof USER_CONTROLS | UserDirectoryEntry)[]>(() => [USER_CONTROLS, ...(loading || error ? [] : nodes)], [error, loading, nodes])
+  const footer = loading
+    ? <LoadState />
+    : error
+      ? <LoadState error={error} retry={() => void load()} />
+      : nodes.length === 0
+        ? <View style={styles.empty}><Ionicons color={palette.sage} name="people-outline" size={34} /><Text style={styles.emptyTitle}>{typeCopy[type].empty}</Text><Text style={styles.emptyText}>Thử thay đổi từ khóa tìm kiếm.</Text></View>
+        : nextCursor
+          ? <Pressable disabled={loadingMore} onPress={() => void load(nextCursor)} style={styles.more}>{loadingMore ? <ActivityIndicator color={palette.white} size="small" /> : <Text style={styles.moreText}>Xem thêm {Math.max(total - nodes.length, 0)} hồ sơ</Text>}</Pressable>
+          : <View style={styles.listEndSpace} />
 
   return <View style={styles.screen}>
     <FlatList
-      contentContainerStyle={styles.content}
-      data={loading || error ? [] : nodes}
-      keyExtractor={(entry) => entry.profileId}
+      contentContainerStyle={[styles.content, listViewportHeight > 0 && { minHeight: listViewportHeight + 56 }]}
+      data={listData}
+      keyExtractor={(entry) => entry === USER_CONTROLS ? USER_CONTROLS : entry.profileId}
       keyboardShouldPersistTaps="handled"
-      ListEmptyComponent={loading
-        ? <LoadState />
-        : error
-          ? <LoadState error={error} retry={() => void load()} />
-          : <View style={styles.empty}><Ionicons color={palette.sage} name="people-outline" size={34} /><Text style={styles.emptyTitle}>{typeCopy[type].empty}</Text><Text style={styles.emptyText}>Thử thay đổi từ khóa tìm kiếm.</Text></View>}
-      ListFooterComponent={nextCursor ? <Pressable disabled={loadingMore} onPress={() => void load(nextCursor)} style={styles.more}>{loadingMore ? <ActivityIndicator color={palette.white} size="small" /> : <Text style={styles.moreText}>Xem thêm {Math.max(total - nodes.length, 0)} hồ sơ</Text>}</Pressable> : <View style={styles.listEndSpace} />}
-      ListHeaderComponent={header}
+      ListFooterComponent={<View style={styles.footerSlot}>{footer}</View>}
+      ListHeaderComponent={<View>{heading}</View>}
       initialNumToRender={10}
       maxToRenderPerBatch={10}
+      onLayout={(event) => setListViewportHeight(Math.round(event.nativeEvent.layout.height))}
+      onScroll={scrollGate.onScroll}
+      onTouchStart={scrollGate.onTouchStart}
+      onScrollBeginDrag={scrollGate.onScrollBeginDrag}
+      onScrollEndDrag={scrollGate.onScrollEndDrag}
+      onMomentumScrollEnd={scrollGate.onMomentumScrollEnd}
+      refreshControl={<RefreshControl enabled={scrollGate.refreshEnabled} refreshing={loading && nodes.length > 0} onRefresh={() => void load()} tintColor={palette.evergreen} />}
       removeClippedSubviews={Platform.OS === 'android'}
-      renderItem={({ item }) => <UserDirectoryRow item={item} onOpen={openProfile} />}
+      renderItem={({ item }) => item === USER_CONTROLS ? controls : <View style={styles.listItem}><UserDirectoryRow item={item} onOpen={openProfile} /></View>}
       showsVerticalScrollIndicator={false}
+      stickyHeaderIndices={[1]}
+      scrollEventThrottle={16}
       updateCellsBatchingPeriod={32}
       windowSize={7}
     />
@@ -619,24 +634,28 @@ function Summary({ label, value }: { label: string; value: number }) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  content: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 18, gap: 9 },
-  header: { gap: 12, marginBottom: 3 },
+  content: { flexGrow: 1, paddingHorizontal: 14, paddingTop: 14, paddingBottom: 18 },
+  stickyWorkspace: { zIndex: 4, paddingTop: 12, paddingBottom: 9, backgroundColor: palette.background },
+  tabsSpacing: { marginBottom: 12 },
+  listItem: { marginBottom: 9 },
+  footerSlot: { flexGrow: 1 },
   workspaceHeading: { minHeight: 42, justifyContent: 'center' },
   workspaceTitle: { color: palette.ink, fontSize: 18, fontWeight: '700' },
   workspaceMeta: { marginTop: 2, color: palette.muted, fontSize: 9 },
-  summaryRow: { flexDirection: 'row', gap: 8 },
-  summary: { flex: 1, minWidth: 0, height: 72, paddingHorizontal: 11, paddingVertical: 10, justifyContent: 'space-between', borderWidth: 1, borderColor: '#CFDBD1', borderRadius: radii.small, backgroundColor: palette.surface },
-  summaryLabel: { color: palette.muted, fontSize: 9.5, fontWeight: '600' },
-  summaryValue: { color: palette.ink, fontSize: 21, fontWeight: '700', letterSpacing: -.6 },
-  toolsRow: { flexDirection: 'row', gap: 8 },
-  search: { flex: 1, height: 44, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1.5, borderColor: '#C2D1C5', borderRadius: radii.small, backgroundColor: palette.surface },
-  searchInput: { flex: 1, height: '100%', paddingVertical: 0, color: palette.ink, fontSize: 13 },
-  addButton: { height: 44, minWidth: 86, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, borderRadius: radii.small, backgroundColor: palette.evergreen },
-  addButtonText: { color: palette.white, fontSize: 12, fontWeight: '700' },
+  alignedRail: { width: '100%', height: 40, flexDirection: 'row' },
+  wideSlot: { width: '31%', paddingRight: 5 },
+  doubleNarrowSlot: { width: '46%', paddingRight: 5 },
+  lastNarrowSlot: { width: '23%' },
+  metricPair: { flex: 1, flexDirection: 'row', gap: 4 },
+  summary: { flex: 1, minWidth: 0, height: 40, paddingHorizontal: 6, justifyContent: 'center', borderRadius: radii.small, backgroundColor: palette.ink },
+  summaryLabel: { color: '#B9D0C7', fontSize: 9, fontWeight: '600' },
+  summaryValue: { marginTop: 1, color: palette.white, fontSize: 13, fontWeight: '700' },
+  search: { flex: 1, height: 40, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 5, borderWidth: 1.5, borderColor: palette.controlLine, borderRadius: radii.small, backgroundColor: palette.surface },
+  searchInput: { minWidth: 0, flex: 1, height: '100%', paddingVertical: 0, color: palette.ink, fontSize: 11, fontWeight: '600' },
+  addButton: { flex: 1, height: 40, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center', borderRadius: radii.small, backgroundColor: palette.evergreen },
+  addButtonText: { color: palette.white, fontSize: 11, fontWeight: '700' },
+  buttonPressed: { opacity: .82 },
   buttonDisabled: { opacity: .45 },
-  listHeading: { marginTop: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  listTitle: { color: palette.ink, fontSize: 15, fontWeight: '700' },
-  listHint: { color: palette.muted, fontSize: 10 },
   person: { minHeight: 84, padding: 11, flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: palette.line, borderRadius: radii.small, backgroundColor: palette.surface },
   personPressed: { borderColor: palette.sage, backgroundColor: '#F0F5EF', transform: [{ scale: .992 }] },
   avatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: palette.evergreen, alignItems: 'center', justifyContent: 'center' },

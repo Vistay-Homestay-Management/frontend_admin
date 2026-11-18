@@ -27,13 +27,25 @@ vi.mock('expo/fetch', () => ({ fetch: vi.fn() }))
 
 vi.mock('react-native', () => ({
   ActivityIndicator: 'ActivityIndicator',
+  Animated: {
+    Value: class AnimatedValue { value: number; constructor(value: number) { this.value = value } interpolate() { return {} } },
+    event: () => vi.fn(),
+    multiply: () => ({}),
+    ScrollView: 'AnimatedScrollView',
+    View: 'AnimatedView',
+    timing: () => ({ start: (complete?: () => void) => complete?.() }),
+  },
   AppState: { addEventListener: vi.fn(() => ({ remove: vi.fn() })) },
+  Easing: { cubic: 'cubic', out: (value: unknown) => value },
   Modal: 'Modal',
+  PanResponder: { create: () => ({ panHandlers: {} }) },
   Pressable: 'Pressable',
+  RefreshControl: 'RefreshControl',
   ScrollView: 'ScrollView',
   StyleSheet: { create: <T,>(styles: T) => styles },
   Text: 'Text',
   TextInput: 'TextInput',
+  useWindowDimensions: () => ({ width: 424, height: 948, scale: 1, fontScale: 1 }),
   View: 'View',
 }))
 

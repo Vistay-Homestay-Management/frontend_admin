@@ -11,6 +11,7 @@ import {
   type BackofficeViewer, type OwnerContractRecord, type PropertyOperatingModel,
   type PropertyPortfolio, type PropertyUnitRecord, type UserDirectoryEntry,
 } from '@vistay/admin-api-client'
+import { VIETNAM_ADMINISTRATIVE_UNITS } from './vietnamAdministrativeUnits'
 
 type PropertyView = 'structure' | 'list' | 'density'
 export type PropertySection = 'portfolio' | 'owned' | 'leased' | 'management' | 'contracts'
@@ -261,7 +262,9 @@ function StructureDialog({ kind, initialParentId, portfolio, graphqlUrl, accessT
   const areas = portfolio.cities.flatMap((city) => city.areas)
   const buildings = areas.flatMap((area) => area.buildings)
   const floors = buildings.flatMap((building) => building.floors)
-  const [form, setForm] = useState({ code: '', name: '', address: '', cityId: kind === 'area' && initialParentId ? initialParentId : portfolio.cities[0]?.id ?? '', areaId: kind === 'building' && initialParentId ? initialParentId : areas[0]?.id ?? '', buildingId: kind === 'floor' && initialParentId ? initialParentId : buildings[0]?.id ?? '', floorId: kind === 'unit' && initialParentId ? initialParentId : floors[0]?.id ?? '', branchId: portfolio.branches[0]?.id ?? '', floorNumber: '', unitNumber: '', operatingModel: 'MANAGEMENT' as PropertyOperatingModel, areaSqm: '', bedrooms: '1', bathrooms: '1', capacity: '2', price: '' })
+  const availableCities = VIETNAM_ADMINISTRATIVE_UNITS.filter((unit) => !portfolio.cities.some((city) => city.code === unit.code))
+  const defaultCity = availableCities[0]
+  const [form, setForm] = useState({ code: kind === 'city' ? defaultCity?.code ?? '' : '', name: kind === 'city' ? defaultCity?.name ?? '' : '', address: '', cityId: kind === 'area' && initialParentId ? initialParentId : portfolio.cities[0]?.id ?? '', areaId: kind === 'building' && initialParentId ? initialParentId : areas[0]?.id ?? '', buildingId: kind === 'floor' && initialParentId ? initialParentId : buildings[0]?.id ?? '', floorId: kind === 'unit' && initialParentId ? initialParentId : floors[0]?.id ?? '', branchId: portfolio.branches[0]?.id ?? '', floorNumber: '', unitNumber: '', operatingModel: 'MANAGEMENT' as PropertyOperatingModel, areaSqm: '', bedrooms: '1', bathrooms: '1', capacity: '2', price: '' })
   async function submit(event: FormEvent) {
     event.preventDefault(); setBusy(true)
     try {
@@ -274,11 +277,15 @@ function StructureDialog({ kind, initialParentId, portfolio, graphqlUrl, accessT
   return <div className="dialog-backdrop property-dialog-backdrop"><form className="property-dialog" onSubmit={submit}>
     <header><div><strong>{kind === 'unit' ? 'Thêm căn hộ' : `Thêm ${kind === 'floor' ? 'tầng' : kind === 'building' ? 'tòa nhà' : kind === 'area' ? 'khu vực' : 'thành phố'}`}</strong><span>Thông tin được lưu trực tiếp vào danh mục vận hành.</span></div><button type="button" onClick={onClose}><X /></button></header>
     <div className="property-dialog-body">
+      {kind === 'city' && <Field label="Tỉnh/thành phố Việt Nam" wide><select required value={form.code} onChange={(event) => {
+        const city = VIETNAM_ADMINISTRATIVE_UNITS.find((unit) => unit.code === event.target.value)
+        setForm({ ...form, code: city?.code ?? '', name: city?.name ?? '' })
+      }}><option value="">Chọn tỉnh/thành phố</option>{availableCities.map((unit) => <option key={unit.code} value={unit.code}>{unit.type === 'CITY' ? 'Thành phố' : 'Tỉnh'} {unit.name} · {unit.code}</option>)}</select></Field>}
       {kind === 'area' && <Field label="Thành phố"><select value={form.cityId} onChange={(e) => setForm({ ...form, cityId: e.target.value })}>{portfolio.cities.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>}
       {kind === 'building' && <Field label="Khu vực"><select value={form.areaId} onChange={(e) => setForm({ ...form, areaId: e.target.value })}>{areas.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>}
       {kind === 'floor' && <Field label="Tòa nhà"><select value={form.buildingId} onChange={(e) => setForm({ ...form, buildingId: e.target.value })}>{buildings.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>}
       {kind === 'unit' && <><Field label="Tầng"><select value={form.floorId} onChange={(e) => setForm({ ...form, floorId: e.target.value })}>{floors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field><Field label="Chi nhánh"><select value={form.branchId} onChange={(e) => setForm({ ...form, branchId: e.target.value })}>{portfolio.branches.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field></>}
-      <Field label="Mã *"><input required value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} /></Field><Field label="Tên *"><input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
+      {kind !== 'city' && <><Field label="Mã *"><input required value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} /></Field><Field label="Tên *"><input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field></>}
       {kind === 'building' && <Field label="Địa chỉ *" wide><input required value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></Field>}
       {kind === 'floor' && <Field label="Số tầng"><input type="number" value={form.floorNumber} onChange={(e) => setForm({ ...form, floorNumber: e.target.value })} /></Field>}
       {kind === 'unit' && <><Field label="Số căn"><input value={form.unitNumber} onChange={(e) => setForm({ ...form, unitNumber: e.target.value })} /></Field><Field label="Mô hình"><select value={form.operatingModel} onChange={(e) => setForm({ ...form, operatingModel: e.target.value as PropertyOperatingModel })}>{Object.entries(modelCopy).map(([value, copy]) => <option key={value} value={value}>{copy.label}</option>)}</select></Field><Field label="Diện tích (m²)"><input type="number" value={form.areaSqm} onChange={(e) => setForm({ ...form, areaSqm: e.target.value })} /></Field><Field label="Sức chứa"><input type="number" min="1" value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} /></Field><Field label="Phòng ngủ"><input type="number" min="0" value={form.bedrooms} onChange={(e) => setForm({ ...form, bedrooms: e.target.value })} /></Field><Field label="Phòng tắm"><input type="number" min="0" value={form.bathrooms} onChange={(e) => setForm({ ...form, bathrooms: e.target.value })} /></Field><Field label="Giá cơ sở"><input type="number" min="0" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} /></Field></>}

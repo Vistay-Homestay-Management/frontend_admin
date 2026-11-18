@@ -1865,13 +1865,13 @@ button.user-directory-row:focus-visible { background: #edf5eb; box-shadow: inset
 .property-building-card > header strong { font-size: .66rem; }
 .property-building-card > header small { overflow: hidden; color: #708178; font-size: .49rem; text-overflow: ellipsis; white-space: nowrap; }
 .property-building-card > header button { min-height: 30px; padding: 0 8px; border: 1px solid #ccd8d0; border-radius: 4px; background: #fff; color: #12544f; font-size: .53rem; }
-.property-floor-tabs { min-height: 39px; padding: 4px 7px; border-bottom: 1px solid #e0e7e2; display: flex; gap: 4px; overflow-x: auto; }
-.property-floor-tabs button { min-width: 69px; padding: 5px 8px; border: 0; border-radius: 4px; background: transparent; color: #52695e; display: flex; align-items: center; justify-content: space-between; gap: 7px; font-size: .53rem; }
+.property-floor-tabs { min-height: 39px; padding: 4px 7px; border-bottom: 1px solid #e0e7e2; display: flex; flex-wrap: nowrap; gap: 4px; overflow-x: auto; }
+.property-floor-tabs button { flex: 0 0 auto; min-width: 69px; padding: 5px 8px; border: 0; border-radius: 4px; background: transparent; color: #52695e; display: flex; align-items: center; justify-content: space-between; gap: 7px; font-size: .53rem; }
 .property-floor-tabs button small { min-width: 17px; height: 17px; border-radius: 50%; background: #e2ebe0; display: grid; place-items: center; font-size: .44rem; }
 .property-floor-tabs button.active { background: #12544f; color: #fff; }
 .property-floor-tabs button.active small { background: rgba(255,255,255,.16); }
-.property-unit-grid { min-height: 98px; padding: 8px; display: grid; grid-template-columns: repeat(auto-fill, minmax(125px, 1fr)); gap: 7px; }
-.property-unit-tile { min-width: 0; min-height: 96px; padding: 9px; border: 1px solid #d7e1da; border-radius: 5px; background: #fff; display: grid; align-content: space-between; gap: 4px; transition: border-color .18s, transform .18s, box-shadow .18s; }
+.property-unit-grid { min-height: 98px; padding: 8px; display: flex; flex-wrap: nowrap; gap: 7px; overflow-x: auto; }
+.property-unit-tile { flex: 0 0 145px; min-width: 145px; min-height: 96px; padding: 9px; border: 1px solid #d7e1da; border-radius: 5px; background: #fff; display: grid; align-content: space-between; gap: 4px; transition: border-color .18s, transform .18s, box-shadow .18s; }
 .property-unit-tile:hover { border-color: #8bbb92; transform: translateY(-1px); box-shadow: 0 8px 20px rgba(9,35,40,.07); }
 .property-unit-tile > div { display: flex; align-items: center; justify-content: space-between; color: #708279; }
 .property-status-dot { width: 7px; height: 7px; border-radius: 50%; background: #c8a65b; }
