@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { Ionicons } from '@expo/vector-icons'
 import { palette, radii } from './theme'
 
-export function PageHeading({ eyebrow, title, detail, action }: {
+export function PageHeading({ eyebrow: _eyebrow, title, detail, action }: {
   eyebrow?: string
   title: string
   detail?: string
@@ -11,7 +11,6 @@ export function PageHeading({ eyebrow, title, detail, action }: {
 }) {
   return <View style={styles.heading}>
     <View style={styles.headingCopy}>
-      {eyebrow ? <Text style={styles.eyebrow}>{eyebrow}</Text> : null}
       <Text style={styles.title}>{title}</Text>
       {detail ? <Text style={styles.detail}>{detail}</Text> : null}
     </View>
@@ -83,11 +82,11 @@ export const pageStyles = StyleSheet.create({
 })
 
 const styles = StyleSheet.create({
-  heading: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12 },
-  headingCopy: { flex: 1, gap: 5 },
+  heading: { minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  headingCopy: { flex: 1, gap: 2 },
   eyebrow: { color: palette.leaf, fontSize: 10, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase' },
-  title: { maxWidth: 320, color: palette.ink, fontSize: 28, lineHeight: 32, fontWeight: '700', letterSpacing: -1.1 },
-  detail: { maxWidth: 410, color: palette.muted, fontSize: 12, lineHeight: 18 },
+  title: { maxWidth: 320, color: palette.ink, fontSize: 18, lineHeight: 22, fontWeight: '700', letterSpacing: -.3 },
+  detail: { maxWidth: 410, color: palette.muted, fontSize: 9, lineHeight: 14 },
   sectionHeading: { gap: 3 },
   sectionTitle: { color: palette.ink, fontSize: 16, fontWeight: '700', letterSpacing: -.3 },
   sectionCaption: { color: palette.muted, fontSize: 10, lineHeight: 15 },
@@ -99,9 +98,9 @@ const styles = StyleSheet.create({
   metricLabel: { flex: 1, color: palette.muted, fontSize: 10, lineHeight: 14, fontWeight: '600' },
   metricValue: { color: palette.ink, fontSize: 23, fontWeight: '700', letterSpacing: -.8 },
   metricTextLight: { color: palette.white },
-  segmented: { flexDirection: 'row', gap: 5, padding: 4, borderRadius: radii.medium, backgroundColor: '#E7ECE6' },
-  segment: { flex: 1, minHeight: 38, paddingHorizontal: 10, borderRadius: radii.small, alignItems: 'center', justifyContent: 'center' },
-  segmentActive: { backgroundColor: palette.ink },
+  segmented: { flexDirection: 'row', gap: 7 },
+  segment: { minWidth: 86, minHeight: 40, paddingHorizontal: 11, borderWidth: 1, borderColor: palette.line, borderRadius: radii.small, backgroundColor: palette.white, alignItems: 'center', justifyContent: 'center' },
+  segmentActive: { borderColor: palette.ink, backgroundColor: palette.ink },
   segmentText: { color: palette.muted, fontSize: 11, fontWeight: '600' },
   segmentTextActive: { color: palette.white, fontWeight: '700' },
   loadState: { minHeight: 180, alignItems: 'center', justifyContent: 'center', gap: 10 },

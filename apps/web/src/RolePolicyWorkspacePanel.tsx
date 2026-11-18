@@ -16,6 +16,12 @@ import {
 
 type PermissionView = 'all' | 'selected' | 'changed'
 
+const accountTypeOptions: Array<{ value: AccountType; label: string }> = [
+  { value: 'ADMIN', label: 'Backoffice' },
+  { value: 'HOST', label: 'Chủ nhà' },
+  { value: 'CUSTOMER', label: 'Khách hàng' },
+]
+
 const resourceLabels: Record<string, string> = {
   account: 'Tài khoản',
   admin: 'Quản trị viên',
@@ -66,11 +72,12 @@ function actionLabel(action: string): string {
   return labels[action] ?? action.replaceAll('-', ' ')
 }
 
-export function RolePolicyWorkspacePanel({ graphqlUrl, accessToken, viewer, accountType }: {
+export function RolePolicyWorkspacePanel({ graphqlUrl, accessToken, viewer, accountType, onAccountTypeChange }: {
   graphqlUrl: string
   accessToken: string
   viewer: BackofficeViewer
   accountType: AccountType
+  onAccountTypeChange?: (accountType: AccountType) => void
 }) {
   const root = useRef<HTMLElement>(null)
   const [roles, setRoles] = useState<RolePolicyRole[]>([])
@@ -78,11 +85,14 @@ export function RolePolicyWorkspacePanel({ graphqlUrl, accessToken, viewer, acco
   const [pending, setPending] = useState<Awaited<ReturnType<typeof fetchRolePolicyWorkspace>>['pendingRequests']>([])
   const [selectedCode, setSelectedCode] = useState('')
   const [selectedPermissions, setSelectedPermissions] = useState<Set<string>>(new Set())
+  const [roleSearch, setRoleSearch] = useState('')
   const [permissionSearch, setPermissionSearch] = useState('')
   const [permissionView, setPermissionView] = useState<PermissionView>('all')
   const [newCode, setNewCode] = useState('')
   const [newName, setNewName] = useState('')
   const [reason, setReason] = useState('')
+  const [creatingRole, setCreatingRole] = useState(false)
+  const [approvalsOpen, setApprovalsOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
@@ -91,9 +101,17 @@ export function RolePolicyWorkspacePanel({ graphqlUrl, accessToken, viewer, acco
   const canRequest = viewer.permissions.includes('role:change-request')
   const canApprove = viewer.permissions.includes('role:change-approve')
   const selected = useMemo(() => roles.find((role) => role.code === selectedCode), [roles, selectedCode])
-  const activeCodes = useMemo(() => new Set(selected?.grants.map((grant) => grant.permissionCode) ?? []), [selected])
+  const activeCodes = useMemo(
+    () => new Set(creatingRole ? [] : selected?.grants.map((grant) => grant.permissionCode) ?? []),
+    [creatingRole, selected],
+  )
   const additions = useMemo(() => [...selectedPermissions].filter((code) => !activeCodes.has(code)), [activeCodes, selectedPermissions])
   const removals = useMemo(() => [...activeCodes].filter((code) => !selectedPermissions.has(code)), [activeCodes, selectedPermissions])
+  const visibleRoles = useMemo(() => {
+    const query = roleSearch.trim().toLocaleLowerCase('vi')
+    if (!query) return roles
+    return roles.filter((role) => `${role.displayName} ${role.code} ${role.description ?? ''}`.toLocaleLowerCase('vi').includes(query))
+  }, [roleSearch, roles])
 
   const groupedPermissions = useMemo(() => {
     const query = permissionSearch.trim().toLocaleLowerCase('vi')
@@ -139,10 +157,36 @@ export function RolePolicyWorkspacePanel({ graphqlUrl, accessToken, viewer, acco
   }, { scope: root, dependencies: [selectedCode, groupedPermissions.length], revertOnUpdate: true })
 
   function selectRole(role: RolePolicyRole) {
+    setCreatingRole(false)
     setSelectedCode(role.code)
     setSelectedPermissions(new Set(role.grants.map((grant) => grant.permissionCode)))
     setPermissionView('all')
     setMessage('')
+  }
+
+  function startCreatingRole() {
+    setCreatingRole(true)
+    setSelectedPermissions(new Set())
+    setPermissionView('all')
+    setPermissionSearch('')
+    setNewCode('')
+    setNewName('')
+    setReason('')
+    setMessage('')
+  }
+
+  function cancelCreatingRole() {
+    const fallback = selected ?? roles.find((role) => role.active) ?? roles[0]
+    setCreatingRole(false)
+    setSelectedCode(fallback?.code ?? '')
+    setSelectedPermissions(new Set(fallback?.grants.map((grant) => grant.permissionCode) ?? []))
+    setReason('')
+  }
+
+  function changeAccountType(nextAccountType: AccountType) {
+    setCreatingRole(false)
+    setApprovalsOpen(false)
+    onAccountTypeChange?.(nextAccountType)
   }
 
   function togglePermission(code: string) {
@@ -153,43 +197,72 @@ export function RolePolicyWorkspacePanel({ graphqlUrl, accessToken, viewer, acco
     })
   }
 
-  async function mutate(action: () => Promise<unknown>, success: string) {
+  async function mutate(action: () => Promise<unknown>, success: string): Promise<boolean> {
     setBusy(true); setMessage('')
-    try { await action(); setMessage(success); await load() }
-    catch (error) { setMessage(error instanceof Error ? error.message : 'Thay đổi role thất bại') }
+    try { await action(); setMessage(success); await load(); return true }
+    catch (error) { setMessage(error instanceof Error ? error.message : 'Thay đổi role thất bại'); return false }
     finally { setBusy(false) }
+  }
+
+  async function submitNewRole() {
+    const created = await mutate(() => requestCreateRole(graphqlUrl, accessToken, {
+      code: newCode,
+      displayName: newName,
+      accountType,
+      grants: [...selectedPermissions].map((permissionCode) => ({ permissionCode, allowedScopes: ['ALL'], partitionTypes: [] })),
+      reason: reason.trim(),
+      idempotencyKey: crypto.randomUUID(),
+    }), 'Đã gửi đề xuất tạo role.')
+    if (created) {
+      setCreatingRole(false)
+      setNewCode('')
+      setNewName('')
+      setReason('')
+    }
   }
 
   if (!canRead) return null
 
   return (
     <section className="role-policy-workspace" ref={root} aria-label="Quản lý role và quyền">
-      <header className="role-policy-heading">
-        <div><ShieldCheck weight="duotone" /><div><h3>Ma trận quyền</h3><p>Chọn role, điều chỉnh quyền theo nhóm và gửi checker phê duyệt.</p></div></div>
-        <span>{permissions.length} quyền · {roles.filter((role) => role.active).length} role</span>
-      </header>
-
       {message && <p className="role-policy-message" role="status">{message}</p>}
       {loading && !roles.length && <div className="inline-state"><SpinnerGap className="spinner" />Đang tải danh mục quyền…</div>}
 
-      {!!roles.length && <div className="role-policy-editor">
+      {(roles.length > 0 || canRequest) && <div className="role-policy-editor">
+        {(creatingRole || selected) && <header className="permission-editor-heading role-policy-shared-header">
+          <div className="permission-editor-context">
+            <ShieldCheck weight="duotone" />
+            <div><span>{creatingRole ? 'Khởi tạo policy' : 'Đang chỉnh sửa'}</span><h3>{creatingRole ? 'Tạo role mới' : selected?.displayName}</h3><p>{creatingRole ? `${selectedPermissions.size} quyền khởi tạo đã chọn` : selected?.description || selected?.code}</p></div>
+            {!creatingRole && <strong>v{selected?.roleVersion}</strong>}
+          </div>
+          <div className="permission-editor-command-actions">
+            <label><span>Đối tượng</span><select value={accountType} onChange={(event) => changeAccountType(event.target.value as AccountType)}>{accountTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+            {canRequest && !creatingRole && <button type="button" onClick={startCreatingRole}><Plus />Tạo role</button>}
+            {canApprove && <button type="button" className={approvalsOpen ? 'active' : ''} onClick={() => setApprovalsOpen((open) => !open)}><Check />Danh sách duyệt{pending.length > 0 && <strong>{pending.length}</strong>}</button>}
+          </div>
+          {creatingRole && <div className="role-create-inline">
+            <label><span>Mã role</span><input autoFocus placeholder="VD: BOOKING_SUPERVISOR" value={newCode} onChange={(event) => setNewCode(event.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, ''))} /></label>
+            <label><span>Tên hiển thị</span><input placeholder="Tên role" value={newName} onChange={(event) => setNewName(event.target.value)} /></label>
+          </div>}
+        </header>}
+
         <aside className="role-catalog-card">
-          <header><span>Danh sách role</span><strong>{roles.length}</strong></header>
+          <label className="role-catalog-search">
+            <MagnifyingGlass />
+            <span className="sr-only">Tìm kiếm trong danh sách role</span>
+            <input value={roleSearch} onChange={(event) => setRoleSearch(event.target.value)} placeholder={`Tìm kiếm trong ${roles.length} role`} />
+          </label>
           <div className="role-policy-tabs">
-            {roles.map((role) => (
-              <button key={role.code} className={role.code === selectedCode ? 'active' : ''} onClick={() => selectRole(role)}>
+            {visibleRoles.map((role) => (
+              <button key={role.code} className={!creatingRole && role.code === selectedCode ? 'active' : ''} onClick={() => selectRole(role)}>
                 <span>{role.displayName}</span><small>{role.code} · v{role.roleVersion}{role.systemRole ? ' · hệ thống' : ''}</small>
               </button>
             ))}
+            {!visibleRoles.length && <div className="role-catalog-empty"><MagnifyingGlass /><span>Không tìm thấy role phù hợp.</span></div>}
           </div>
         </aside>
 
-        {selected && <main className="permission-editor">
-          <header className="permission-editor-heading">
-            <div><span>Đang chỉnh sửa</span><h3>{selected.displayName}</h3><p>{selected.description || selected.code}</p></div>
-            <strong>v{selected.roleVersion}</strong>
-          </header>
-
+        {(creatingRole || selected) && <main className={`permission-editor${creatingRole ? ' creating' : ''}`}>
           <div className="permission-toolbar">
             <label><MagnifyingGlass /><input value={permissionSearch} onChange={(event) => setPermissionSearch(event.target.value)} placeholder="Tìm resource, action hoặc mã quyền" /></label>
             <div role="group" aria-label="Lọc quyền">
@@ -227,9 +300,17 @@ export function RolePolicyWorkspacePanel({ graphqlUrl, accessToken, viewer, acco
           </div>
 
           <footer className="permission-submit">
-            <label><span>Lý do thay đổi</span><input value={reason} onChange={(event) => setReason(event.target.value)} minLength={8} placeholder="Mô tả lý do, tối thiểu 8 ký tự" /></label>
-            <div className="permission-diff"><span className="added">+{additions.length} thêm</span><span className="removed">−{removals.length} bỏ</span></div>
+            <label><span>{creatingRole ? 'Lý do tạo role' : 'Lý do thay đổi'}</span><input value={reason} onChange={(event) => setReason(event.target.value)} minLength={8} placeholder="Mô tả lý do, tối thiểu 8 ký tự" /></label>
+            <div className="permission-diff">{creatingRole
+              ? <span className="added">{selectedPermissions.size} quyền đã chọn</span>
+              : <><span className="added">+{additions.length} thêm</span><span className="removed">−{removals.length} bỏ</span></>}
+            </div>
             <div className="role-policy-actions">
+              {creatingRole ? <>
+                <button type="button" disabled={busy} onClick={cancelCreatingRole}><X />Hủy</button>
+                <button className="primary-button" disabled={!canRequest || busy || !newCode || newName.trim().length < 3 || reason.trim().length < 8 || selectedPermissions.size === 0}
+                  onClick={() => void submitNewRole()}>{busy ? <SpinnerGap className="spinner" /> : <Plus />}Gửi đề xuất tạo</button>
+              </> : selected && <>
               {!selected.systemRole && selected.active && <button type="button" disabled={!canRequest || busy || reason.trim().length < 8}
                 onClick={() => void mutate(() => requestDeactivateRole(graphqlUrl, accessToken, {
                   roleCode: selected.code, accountType, expectedRoleVersion: selected.roleVersion,
@@ -242,32 +323,19 @@ export function RolePolicyWorkspacePanel({ graphqlUrl, accessToken, viewer, acco
                   removePermissionCodes: removals,
                   expectedRoleVersion: selected.roleVersion, reason: reason.trim(), idempotencyKey: crypto.randomUUID(),
                 }), 'Đã gửi permission diff cho checker.')}>{busy ? <SpinnerGap className="spinner" /> : <Check />}Gửi thay đổi</button>
+              </>}
             </div>
           </footer>
         </main>}
       </div>}
 
-      <div className="role-policy-secondary">
-        <article className="role-create-card">
-          <header><div><span>Custom role</span><h3>Tạo role mới</h3></div><Plus /></header>
-          <p>Role mới dùng tập quyền đang chọn ở trình chỉnh sửa phía trên.</p>
-          <div className="role-create-fields"><input placeholder="ROLE_CODE" value={newCode} onChange={(event) => setNewCode(event.target.value.toUpperCase())} /><input placeholder="Tên hiển thị" value={newName} onChange={(event) => setNewName(event.target.value)} /></div>
-          <button className="primary-button" disabled={!canRequest || busy || !newCode || newName.length < 3 || reason.trim().length < 8 || selectedPermissions.size === 0}
-            onClick={() => void mutate(() => requestCreateRole(graphqlUrl, accessToken, {
-              code: newCode, displayName: newName, accountType,
-              grants: [...selectedPermissions].map((permissionCode) => ({ permissionCode, allowedScopes: ['ALL'], partitionTypes: [] })),
-              reason: reason.trim(), idempotencyKey: crypto.randomUUID(),
-            }), 'Đã gửi đề xuất tạo role.')}>Tạo đề xuất với {selectedPermissions.size} quyền</button>
-        </article>
-
-        <article className="checker-card">
-          <header><div><span>Maker–checker</span><h3>Chờ phê duyệt</h3></div><strong>{pending.length}</strong></header>
-          <div className="checker-list">
-            {pending.map((request) => <div className="checker-row" key={request.id}><div><strong>{request.roleCode}</strong><small>{request.changeType} · {request.reason}</small></div>{canApprove && <div><button title="Phê duyệt" onClick={() => void mutate(() => reviewRolePolicyChange(graphqlUrl, accessToken, request.id, 'Approved after independent policy review', true), 'Đã phê duyệt role policy.')}><Check /></button><button title="Từ chối" onClick={() => void mutate(() => reviewRolePolicyChange(graphqlUrl, accessToken, request.id, 'Rejected after independent policy review', false), 'Đã từ chối role policy.')}><X /></button></div>}</div>)}
-            {!pending.length && <p><Check />Không có thay đổi đang chờ.</p>}
-          </div>
-        </article>
-      </div>
+      {approvalsOpen && canApprove && <section className="role-approval-tray" aria-label="Thay đổi role chờ phê duyệt">
+        <header><div><strong>Danh sách duyệt</strong><span>{pending.length > 0 ? `${pending.length} thay đổi cần checker độc lập` : 'Chưa có thay đổi nào cần xử lý'}</span></div><button type="button" onClick={() => setApprovalsOpen(false)} aria-label="Đóng danh sách chờ duyệt"><X /></button></header>
+        <div className="checker-list">
+          {pending.map((request) => <div className="checker-row" key={request.id}><div><strong>{request.roleCode}</strong><small>{request.changeType} · {request.reason}</small></div><div><button title="Phê duyệt" onClick={() => void mutate(() => reviewRolePolicyChange(graphqlUrl, accessToken, request.id, 'Approved after independent policy review', true), 'Đã phê duyệt role policy.')}><Check /></button><button title="Từ chối" onClick={() => void mutate(() => reviewRolePolicyChange(graphqlUrl, accessToken, request.id, 'Rejected after independent policy review', false), 'Đã từ chối role policy.')}><X /></button></div></div>)}
+          {!pending.length && <div className="role-approval-empty"><Check /><strong>Đã xử lý hết</strong><span>Đề xuất mới sẽ xuất hiện tại đây.</span></div>}
+        </div>
+      </section>}
     </section>
   )
 }

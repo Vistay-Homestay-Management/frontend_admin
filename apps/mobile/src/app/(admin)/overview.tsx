@@ -71,7 +71,7 @@ export default function OverviewScreen() {
     style={pageStyles.scroll}
     contentContainerStyle={pageStyles.content}
   >
-    <PageHeading eyebrow="Điều hành" title="Tổng quan" detail="Những chỉ số cần biết ngay, dùng cùng nguồn dữ liệu và quyền truy cập với web admin." />
+    <PageHeading eyebrow="Điều hành" title="Tổng quan" detail="Chỉ số vận hành chính" />
     <Segmented options={[{ label: 'Hệ thống', value: 'SYSTEM' }, { label: 'Cá nhân', value: 'PERSONAL' }]} value={view} onChange={setView} />
     <Segmented options={[{ label: '7 ngày', value: '7' }, { label: '30 ngày', value: '30' }, { label: '90 ngày', value: '90' }]} value={days} onChange={setDays} />
 

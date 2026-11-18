@@ -9,6 +9,7 @@ import { ApiError } from '@vistay/admin-api-client'
 const inventoryMocks = vi.hoisted(() => ({
   fetchInventoryBlocks: vi.fn(),
   fetchPropertyAvailability: vi.fn(),
+  fetchPropertyPortfolio: vi.fn(),
   createInventoryBlock: vi.fn(),
   releaseInventoryBlock: vi.fn(),
 }))
@@ -126,6 +127,7 @@ describe('InventoryWorkspace', () => {
     vi.clearAllMocks()
     resetInventorySessionGuards()
     inventoryMocks.fetchInventoryBlocks.mockImplementation(async () => page)
+    inventoryMocks.fetchPropertyPortfolio.mockResolvedValue({ branches: [], cities: [] })
     inventoryMocks.fetchPropertyAvailability.mockImplementation(async (_url, _token, propertyId, checkInDate, checkOutDate) => ({
       propertyId, checkInDate, checkOutDate, available: false,
       inventoryRevision: '17', branchId: page.branchId,

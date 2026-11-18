@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react'
-import { fetch as expoFetch } from 'expo/fetch'
 import * as SecureStore from 'expo-secure-store'
 import {
   consumeNotificationStream,
@@ -16,7 +15,8 @@ import {
   type NotificationInboxPage,
 } from '@vistay/admin-api-client'
 
-const mobileFetch = expoFetch as typeof globalThis.fetch
+const mobileFetch = globalThis.fetch
+const MOBILE_INBOX_POLL_MS = 15_000
 type LoadStatus = 'loading' | 'ready' | 'error'
 export type StreamStatus = 'connecting' | 'live' | 'retrying' | 'error'
 
@@ -168,14 +168,6 @@ export interface NotificationInboxModel {
   markAllRead: () => Promise<void>
 }
 
-function isCursorRecoveryError(reason: unknown): boolean {
-  const code = reason && typeof reason === 'object' && 'code' in reason
-    ? String((reason as { code?: unknown }).code ?? '')
-    : ''
-  return ['CURSOR_EXPIRED', 'CURSOR_INVALID', 'CURSOR_RESYNC_REQUIRED'].includes(code)
-    || /cursor.*(expired|invalid|resync)/i.test(message(reason))
-}
-
 function idempotencyKey(): string {
   return globalThis.crypto?.randomUUID?.()
     ?? `mobile-${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -236,6 +228,7 @@ export function useNotificationInbox(
         setUnreadCount(page.unread.count)
         setUnreadCursor(page.unread.asOfCursor)
         setInboxStatus('ready')
+        setStatus('live')
       })
       .catch((reason: unknown) => {
         if (controller.signal.aborted) return
@@ -248,54 +241,30 @@ export function useNotificationInbox(
   useEffect(() => {
     if (!accountId) return
     const controller = new AbortController()
-    const cursorKey = `vistay.notifications.cursor.${accountId}`
-    let cursor: string | null = null
-    let failures = 0
-    let recoveredCursor = false
 
     async function run() {
-      const storedCursor = await SecureStore.getItemAsync(cursorKey)
-      cursor = isDurableCursor(storedCursor) ? storedCursor : null
-      if (storedCursor && !cursor) await SecureStore.deleteItemAsync(cursorKey)
       while (!controller.signal.aborted) {
-        setStatus(failures === 0 ? 'connecting' : 'retrying')
+        await sleep(MOBILE_INBOX_POLL_MS, controller.signal)
+        if (controller.signal.aborted) return
         try {
-          await consumeNotificationStream({
+          const page = await fetchNotificationInbox(
             graphqlUrl,
             accessToken,
-            afterCursor: cursor,
-            signal: controller.signal,
-            fetcher: mobileFetch,
-            onOpen: () => {
-              failures = 0
-              setError(undefined)
-              setStatus('live')
-            },
-            onEvent: async (event) => {
-              setNotifications((current) => prependNotification(current, event.notification, 100))
-              cursor = event.cursor
-              await SecureStore.setItemAsync(cursorKey, event.cursor)
-              failures = 0
-              setError(undefined)
-              setStatus('live')
-            },
-          })
-          if (!controller.signal.aborted) failures += 1
+            { limit: 50 },
+            controller.signal,
+            mobileFetch,
+          )
+          if (controller.signal.aborted) return
+          setNotifications((current) => mergeNotifications(current, page.nodes, 100))
+          setPageInfo(page.pageInfo)
+          setUnreadCount(page.unread.count)
+          setUnreadCursor(page.unread.asOfCursor)
+          setError(undefined)
+          setStatus('live')
         } catch (reason) {
           if (controller.signal.aborted) return
-          if (!recoveredCursor && isCursorRecoveryError(reason)) {
-            recoveredCursor = true
-            cursor = null
-            await SecureStore.deleteItemAsync(cursorKey)
-            setError('Cursor đã hết hạn; đang đồng bộ lại thông báo mới nhất.')
-            continue
-          }
-          failures += 1
           setError(message(reason))
-          setStatus(failures >= 5 ? 'error' : 'retrying')
-        }
-        if (!controller.signal.aborted) {
-          await sleep(Math.min(1_000 * 2 ** Math.min(failures - 1, 4), 15_000), controller.signal)
+          setStatus('retrying')
         }
       }
     }

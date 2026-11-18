@@ -303,11 +303,7 @@ export function AuthorizationConsole({ graphqlUrl, accessToken, viewer, mode = '
   if (mode === 'roles') {
     return (
       <section className="authorization-console role-policy-console" id="role-policy" ref={root}>
-        <header className="role-policy-page-heading">
-          <div><p className="eyebrow">ROLE POLICY</p><h2>Role &amp; quyền</h2><p>Quản lý tập quyền theo từng nhóm nghiệp vụ. Mọi thay đổi vẫn đi qua maker–checker.</p></div>
-          <label>Đối tượng<select value={accountType} onChange={(event) => setAccountType(event.target.value as AccountType)}>{accountTypes.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label>
-        </header>
-        <RolePolicyWorkspacePanel graphqlUrl={graphqlUrl} accessToken={accessToken} viewer={viewer} accountType={accountType} />
+        <RolePolicyWorkspacePanel graphqlUrl={graphqlUrl} accessToken={accessToken} viewer={viewer} accountType={accountType} onAccountTypeChange={setAccountType} />
       </section>
     )
   }

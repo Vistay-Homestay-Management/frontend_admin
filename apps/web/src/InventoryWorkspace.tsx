@@ -4,28 +4,25 @@ import gsap from 'gsap'
 import {
   ApiError,
   createInventoryBlock,
+  fetchAdminBookingTimeline,
   fetchInventoryBlocks,
-  fetchPropertyAvailability,
+  fetchPropertyPortfolio,
   releaseInventoryBlock,
   type BackofficeViewer,
+  type AdminBookingRecord,
   type InventoryBlockManagementNode,
   type InventoryBlockManagementPage,
   type InventoryBlockStatus,
   type InventoryBlockType,
   type OperatorInventoryBlockType,
-  type PropertyAvailabilityObservation,
+  type PropertyUnitRecord,
+  type PropertyPortfolio,
 } from '@vistay/admin-api-client'
 import {
   ArrowClockwise,
   CalendarBlank,
-  CaretLeft,
-  CaretRight,
   CheckCircle,
-  ClockCounterClockwise,
-  DoorOpen,
-  Funnel,
   LockKeyOpen,
-  MagnifyingGlass,
   Plus,
   SpinnerGap,
   WarningCircle,
@@ -40,6 +37,37 @@ interface InventoryWorkspaceProps {
 }
 
 export type InventorySection = 'map' | 'reservations' | 'check-in' | 'check-out'
+type TimelineScale = 'day' | 'week' | 'month'
+
+interface TimelinePeriod {
+  key: string
+  start: string
+  end: string
+  eyebrow: string
+  label: string
+}
+
+interface TimelineUnit extends PropertyUnitRecord {
+  path: string
+  cityId: string
+  cityName: string
+  areaId: string
+  areaName: string
+  buildingId: string
+  buildingName: string
+  floorName: string
+}
+
+interface TimelineBar {
+  id: string
+  type: InventoryBlockType
+  status: string
+  startDate: string
+  endDateExclusive: string
+  title: string
+  subtitle: string
+  node?: InventoryBlockManagementNode
+}
 
 const LOCAL_MANAGEMENT_PROPERTY = '61000000-0000-4000-8000-000000000010'
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
@@ -61,35 +89,7 @@ const statusLabels: Record<InventoryBlockStatus, string> = {
 }
 
 const operatorTypes: OperatorInventoryBlockType[] = ['MAINTENANCE', 'CLEANING', 'OWNER_USE', 'MANUAL']
-const allTypes = Object.keys(typeLabels) as InventoryBlockType[]
-const allStatuses = Object.keys(statusLabels) as InventoryBlockStatus[]
 const bookingBlockTypes: InventoryBlockType[] = ['BOOKING', 'CHANNEL']
-const sectionCopy: Record<InventorySection, { eyebrow: string; title: string; description: string; countLabel: string }> = {
-  map: {
-    eyebrow: 'SƠ ĐỒ PHÒNG',
-    title: 'Sơ đồ booking',
-    description: 'Theo dõi tình trạng căn, block vận hành và thay đổi tồn phòng trong một timeline.',
-    countLabel: 'Block hiệu lực',
-  },
-  reservations: {
-    eyebrow: 'ĐẶT PHÒNG',
-    title: 'Đặt phòng',
-    description: 'Các booking và block từ kênh OTA trong khoảng ngày đang chọn.',
-    countLabel: 'Đặt phòng',
-  },
-  'check-in': {
-    eyebrow: 'CHECK-IN',
-    title: 'Check-in',
-    description: 'Các lượt khách bắt đầu lưu trú trong khoảng ngày đang chọn.',
-    countLabel: 'Lượt đến',
-  },
-  'check-out': {
-    eyebrow: 'CHECK-OUT',
-    title: 'Check out',
-    description: 'Các lượt khách kết thúc lưu trú trong khoảng ngày đang chọn.',
-    countLabel: 'Lượt đi',
-  },
-}
 
 function isoToday(): string {
   const now = new Date()
@@ -100,6 +100,12 @@ function isoToday(): string {
 function addDays(value: string, amount: number): string {
   const date = new Date(`${value}T00:00:00Z`)
   date.setUTCDate(date.getUTCDate() + amount)
+  return date.toISOString().slice(0, 10)
+}
+
+function addMonths(value: string, amount: number): string {
+  const date = new Date(`${value}T00:00:00Z`)
+  date.setUTCMonth(date.getUTCMonth() + amount)
   return date.toISOString().slice(0, 10)
 }
 
@@ -117,6 +123,88 @@ function formatDay(value: string): { weekday: string; day: string } {
     weekday: new Intl.DateTimeFormat('vi-VN', { weekday: 'short', timeZone: 'UTC' }).format(date),
     day: new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', timeZone: 'UTC' }).format(date),
   }
+}
+
+function startOfWeek(value: string): string {
+  const date = new Date(`${value}T00:00:00Z`)
+  const offset = (date.getUTCDay() + 6) % 7
+  date.setUTCDate(date.getUTCDate() - offset)
+  return date.toISOString().slice(0, 10)
+}
+
+function startOfMonth(value: string): string {
+  return `${value.slice(0, 7)}-01`
+}
+
+function isoWeek(value: string): number {
+  const date = new Date(`${value}T00:00:00Z`)
+  const day = date.getUTCDay() || 7
+  date.setUTCDate(date.getUTCDate() + 4 - day)
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1))
+  return Math.ceil((((date.getTime() - yearStart.getTime()) / 86_400_000) + 1) / 7)
+}
+
+function timelineRange(anchor: string, scale: TimelineScale): { from: string; to: string } {
+  if (scale === 'week') {
+    const from = startOfWeek(anchor)
+    return { from, to: addDays(from, 112) }
+  }
+  if (scale === 'month') {
+    const from = startOfMonth(anchor)
+    return { from, to: addMonths(from, 12) }
+  }
+  return { from: anchor, to: addDays(anchor, 31) }
+}
+
+function timelinePeriods(from: string, to: string, scale: TimelineScale): TimelinePeriod[] {
+  const periods: TimelinePeriod[] = []
+  let cursor = from
+  while (cursor < to && periods.length < 400) {
+    const next = scale === 'day' ? addDays(cursor, 1) : scale === 'week' ? addDays(cursor, 7) : addMonths(cursor, 1)
+    const end = next < to ? next : to
+    if (scale === 'day') {
+      const copy = formatDay(cursor)
+      periods.push({ key: cursor, start: cursor, end, eyebrow: copy.weekday, label: copy.day })
+    } else if (scale === 'week') {
+      const endInclusive = addDays(end, -1)
+      periods.push({
+        key: cursor,
+        start: cursor,
+        end,
+        eyebrow: `Tuần ${isoWeek(cursor)}`,
+        label: `${cursor.slice(8, 10)}/${cursor.slice(5, 7)}–${endInclusive.slice(8, 10)}/${endInclusive.slice(5, 7)}`,
+      })
+    } else {
+      const date = new Date(`${cursor}T00:00:00Z`)
+      periods.push({
+        key: cursor,
+        start: cursor,
+        end,
+        eyebrow: new Intl.DateTimeFormat('vi-VN', { month: 'short', timeZone: 'UTC' }).format(date),
+        label: String(date.getUTCFullYear()),
+      })
+    }
+    cursor = end
+  }
+  return periods
+}
+
+function timelinePixelOffset(value: string, periods: TimelinePeriod[], periodWidth: number): number {
+  if (!periods.length || value <= periods[0].start) return 0
+  for (let index = 0; index < periods.length; index += 1) {
+    const period = periods[index]
+    if (value < period.end) {
+      const periodDays = Math.max(1, dateDistance(period.start, period.end))
+      const elapsedDays = Math.max(0, dateDistance(period.start, value))
+      return (index + Math.min(1, elapsedDays / periodDays)) * periodWidth
+    }
+  }
+  return periods.length * periodWidth
+}
+
+function initialTimelineScale(): TimelineScale {
+  const saved = window.localStorage.getItem('vistay.inventory.timelineScale')
+  return saved === 'week' || saved === 'month' ? saved : 'day'
 }
 
 function errorCopy(error: unknown): { title: string; detail: string; code?: string } {
@@ -149,14 +237,24 @@ function initialPropertyId(): string {
 
 export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, section }: InventoryWorkspaceProps) {
   const root = useRef<HTMLElement>(null)
+  const timelineScroll = useRef<HTMLDivElement>(null)
+  const timelineExtensionPending = useRef(false)
   const today = useMemo(() => isoToday(), [])
+  const initialScale = useMemo(() => initialTimelineScale(), [])
+  const [timelineScale, setTimelineScale] = useState<TimelineScale>(initialScale)
   const [propertyId, setPropertyId] = useState(initialPropertyId)
-  const [fromDate, setFromDate] = useState(today)
-  const [toDateExclusive, setToDateExclusive] = useState(() => addDays(today, 14))
-  const [selectedTypes, setSelectedTypes] = useState<InventoryBlockType[]>([])
-  const [selectedStatuses, setSelectedStatuses] = useState<InventoryBlockStatus[]>([])
+  const [propertyCatalog, setPropertyCatalog] = useState<TimelineUnit[]>([])
+  const [portfolio, setPortfolio] = useState<PropertyPortfolio>({ branches: [], cities: [] })
+  const [fromDate, setFromDate] = useState(() => timelineRange(today, initialScale).from)
+  const [toDateExclusive, setToDateExclusive] = useState(() => timelineRange(today, initialScale).to)
+  const timelineEndRef = useRef(toDateExclusive)
+  const [visibleStartDate, setVisibleStartDate] = useState(() => timelineRange(today, initialScale).from)
+  const [cityFilter, setCityFilter] = useState('ALL')
+  const [areaFilter, setAreaFilter] = useState('ALL')
+  const [buildingFilter, setBuildingFilter] = useState('ALL')
   const [page, setPage] = useState<InventoryBlockManagementPage>()
-  const [availability, setAvailability] = useState<PropertyAvailabilityObservation>()
+  const [bookings, setBookings] = useState<AdminBookingRecord[]>([])
+  const [timelineTruncated, setTimelineTruncated] = useState(false)
   const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
   const [error, setError] = useState<ReturnType<typeof errorCopy>>()
   const [selectedBlock, setSelectedBlock] = useState<InventoryBlockManagementNode>()
@@ -165,46 +263,98 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, section }:
   const [commandError, setCommandError] = useState<ReturnType<typeof errorCopy>>()
   const [notice, setNotice] = useState<string>()
   const canManage = viewer.permissions.includes('inventory:block')
+  const canReadBookings = viewer.permissions.includes('booking:read')
+  const bootstrapTimeline = useRef({ from: timelineRange(today, initialScale).from, to: timelineRange(today, initialScale).to, canRead: canReadBookings })
   const initialProperty = useRef(propertyId)
   const previousSection = useRef(section)
 
-  const days = useMemo(() => {
-    const length = Math.max(0, Math.min(31, dateDistance(fromDate, toDateExclusive)))
-    return Array.from({ length }, (_, index) => addDays(fromDate, index))
-  }, [fromDate, toDateExclusive])
+  useEffect(() => {
+    const controller = new AbortController()
+    void fetchPropertyPortfolio(graphqlUrl, accessToken, {}, controller.signal).then((portfolio) => {
+      setPortfolio(portfolio)
+      const mapped = portfolio.cities.flatMap((city) => city.areas.flatMap((area) => area.buildings.flatMap((building) => building.floors.flatMap((floor) =>
+        floor.units.filter((unit) => Boolean(unit.branchId)).map((unit) => ({
+          ...unit,
+          path: `${building.name} · ${floor.name}`,
+          cityId: city.id,
+          cityName: city.name,
+          areaId: area.id,
+          areaName: area.name,
+          buildingId: building.id,
+          buildingName: building.name,
+          floorName: floor.name,
+        }))))))
+      setPropertyCatalog(mapped)
+      if (mapped.length) setPropertyId((current) => mapped.some((unit) => unit.id === current) ? current : mapped[0].id)
+      if (mapped.length && bootstrapTimeline.current.canRead) {
+        void fetchAdminBookingTimeline(graphqlUrl, accessToken, {
+          propertyIds: mapped.slice(0, 500).map((unit) => unit.id),
+          fromDate: bootstrapTimeline.current.from,
+          toDateExclusive: bootstrapTimeline.current.to,
+        }, controller.signal).then((timeline) => { setBookings(timeline.nodes); setTimelineTruncated(timeline.truncated) }).catch(() => undefined)
+      }
+    }).catch(() => undefined)
+    return () => controller.abort()
+  }, [accessToken, graphqlUrl])
 
-  const load = useCallback(async (signal?: AbortSignal) => {
-    const normalizedId = propertyId.trim().toLowerCase()
+  const areaOptions = useMemo(() => portfolio.cities
+    .filter((city) => cityFilter === 'ALL' || city.id === cityFilter)
+    .flatMap((city) => city.areas), [cityFilter, portfolio.cities])
+  const buildingOptions = useMemo(() => portfolio.cities
+    .filter((city) => cityFilter === 'ALL' || city.id === cityFilter)
+    .flatMap((city) => city.areas)
+    .filter((area) => areaFilter === 'ALL' || area.id === areaFilter)
+    .flatMap((area) => area.buildings), [areaFilter, cityFilter, portfolio.cities])
+  const filteredUnits = useMemo(() => propertyCatalog.filter((unit) =>
+    (cityFilter === 'ALL' || unit.cityId === cityFilter)
+    && (areaFilter === 'ALL' || unit.areaId === areaFilter)
+    && (buildingFilter === 'ALL' || unit.buildingId === buildingFilter)), [areaFilter, buildingFilter, cityFilter, propertyCatalog])
+
+  const periods = useMemo(
+    () => timelinePeriods(fromDate, toDateExclusive, timelineScale),
+    [fromDate, timelineScale, toDateExclusive],
+  )
+
+  const load = useCallback(async (signal?: AbortSignal, range?: { from: string; to: string }, targetPropertyId?: string) => {
+    const normalizedId = (targetPropertyId ?? propertyId).trim().toLowerCase()
+    const rangeFrom = range?.from ?? fromDate
+    const rangeTo = range?.to ?? toDateExclusive
     if (!UUID_PATTERN.test(normalizedId)) {
       setStatus('error')
       setError({ title: 'Mã căn chưa hợp lệ', detail: 'Hãy nhập UUID của căn lưu trú.' })
       return
     }
-    const duration = dateDistance(fromDate, toDateExclusive)
-    if (duration < 1 || duration > 31) {
+    const duration = dateDistance(rangeFrom, rangeTo)
+    if (duration < 1 || duration > 370) {
       setStatus('error')
-      setError({ title: 'Khoảng xem chưa hợp lệ', detail: 'Timeline hỗ trợ từ 1 đến 31 ngày mỗi lần.' })
+      setError({ title: 'Khoảng xem chưa hợp lệ', detail: 'Timeline hỗ trợ tối đa 370 ngày mỗi lần.' })
       return
     }
 
     setStatus('loading')
     setError(undefined)
-    setAvailability(undefined)
     window.localStorage.setItem('vistay.inventory.propertyId', normalizedId)
     try {
-      const [inventoryPage, observation] = await Promise.all([
+      const [inventoryPage, bookingTimeline] = await Promise.all([
         fetchInventoryBlocks(graphqlUrl, accessToken, {
           propertyId: normalizedId,
-          fromDate,
-          toDateExclusive,
-          types: section === 'map' ? selectedTypes : bookingBlockTypes,
-          statuses: section === 'map' ? selectedStatuses : [],
+          fromDate: rangeFrom,
+          toDateExclusive: rangeTo,
+          types: section === 'map' ? [] : bookingBlockTypes,
+          statuses: [],
           first: 100,
         }, signal),
-        fetchPropertyAvailability(graphqlUrl, accessToken, normalizedId, fromDate, toDateExclusive, signal),
+        canReadBookings && propertyCatalog.length
+          ? fetchAdminBookingTimeline(graphqlUrl, accessToken, {
+              propertyIds: propertyCatalog.slice(0, 500).map((unit) => unit.id),
+              fromDate: rangeFrom,
+              toDateExclusive: rangeTo,
+            }, signal)
+          : Promise.resolve({ nodes: [], fromDate: rangeFrom, toDateExclusive: rangeTo, truncated: false }),
       ])
       setPage(inventoryPage)
-      setAvailability(observation)
+      setBookings(bookingTimeline.nodes)
+      setTimelineTruncated(bookingTimeline.truncated)
       setSelectedBlock((current) => inventoryPage.nodes.find((node) => node.inventoryBlockId === current?.inventoryBlockId))
       setStatus('ready')
     } catch (reason) {
@@ -212,7 +362,7 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, section }:
       setStatus('error')
       setError(errorCopy(reason))
     }
-  }, [accessToken, fromDate, graphqlUrl, propertyId, section, selectedStatuses, selectedTypes, toDateExclusive])
+  }, [accessToken, canReadBookings, fromDate, graphqlUrl, propertyCatalog, propertyId, section, toDateExclusive])
 
   const initialLoad = useRef(load)
 
@@ -233,8 +383,8 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, section }:
 
   useGSAP(() => {
     if (status !== 'ready') return
-    gsap.fromTo('.inventory-summary-card', { opacity: 0, y: 18 }, {
-      opacity: 1, y: 0, duration: 0.48, stagger: 0.06, ease: 'power2.out',
+    gsap.fromTo('.inventory-rail-metric', { opacity: 0, y: 7 }, {
+      opacity: 1, y: 0, duration: 0.28, stagger: 0.035, ease: 'power2.out',
     })
     gsap.fromTo('.inventory-block-bar', { opacity: 0, scaleX: 0.84 }, {
       opacity: 1, scaleX: 1, duration: 0.58, stagger: 0.045, ease: 'power3.out', transformOrigin: 'left center',
@@ -242,21 +392,96 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, section }:
     gsap.fromTo('.booking-operation-row', { opacity: 0, y: 12 }, {
       opacity: 1, y: 0, duration: 0.42, stagger: 0.045, ease: 'power2.out',
     })
-  }, { scope: root, dependencies: [status, page?.inventoryRevision, section], revertOnUpdate: true })
+  }, { scope: root, dependencies: [status, page?.inventoryRevision, section, timelineScale], revertOnUpdate: true })
 
-  function shiftWindow(amount: number) {
-    setFromDate((current) => addDays(current, amount))
-    setToDateExclusive((current) => addDays(current, amount))
+  function changeTimelineScale(nextScale: TimelineScale) {
+    if (nextScale === timelineScale) return
+    const range = timelineRange(visibleStartDate, nextScale)
+    setTimelineScale(nextScale)
+    setFromDate(range.from)
+    setToDateExclusive(range.to)
+    timelineEndRef.current = range.to
+    setVisibleStartDate(range.from)
+    if (timelineScroll.current) timelineScroll.current.scrollLeft = 0
+    window.localStorage.setItem('vistay.inventory.timelineScale', nextScale)
+    void load(undefined, range)
   }
 
-  function toggleType(type: InventoryBlockType) {
-    setSelectedTypes((current) => current.includes(type) ? current.filter((item) => item !== type) : [...current, type])
+  function changeStartDate(value: string) {
+    const range = timelineRange(value, timelineScale)
+    setFromDate(range.from)
+    setToDateExclusive(range.to)
+    timelineEndRef.current = range.to
+    setVisibleStartDate(range.from)
+    if (timelineScroll.current) timelineScroll.current.scrollLeft = 0
+    void load(undefined, range)
   }
 
-  function toggleStatus(blockStatus: InventoryBlockStatus) {
-    setSelectedStatuses((current) => current.includes(blockStatus)
-      ? current.filter((item) => item !== blockStatus)
-      : [...current, blockStatus])
+  async function extendTimeline() {
+    if (timelineExtensionPending.current || !canReadBookings || propertyCatalog.length === 0) return
+    timelineExtensionPending.current = true
+    const chunkFrom = timelineEndRef.current
+    const chunkTo = timelineScale === 'day' ? addDays(chunkFrom, 31)
+      : timelineScale === 'week' ? addDays(chunkFrom, 112) : addMonths(chunkFrom, 12)
+    try {
+      const timeline = await fetchAdminBookingTimeline(graphqlUrl, accessToken, {
+        propertyIds: propertyCatalog.slice(0, 500).map((unit) => unit.id),
+        fromDate: chunkFrom,
+        toDateExclusive: chunkTo,
+      })
+      setBookings((current) => {
+        const merged = new Map(current.map((booking) => [booking.id, booking]))
+        timeline.nodes.forEach((booking) => merged.set(booking.id, booking))
+        return [...merged.values()]
+      })
+      setTimelineTruncated((current) => current || timeline.truncated)
+      timelineEndRef.current = chunkTo
+      setToDateExclusive(chunkTo)
+    } catch (reason) {
+      setError(errorCopy(reason))
+    } finally {
+      timelineExtensionPending.current = false
+    }
+  }
+
+  function synchronizeVisibleDate(scrollLeft: number, scrollWidth: number, clientWidth: number) {
+    const firstVisibleIndex = Math.min(periods.length - 1, Math.max(0, Math.floor(scrollLeft / periodWidth)))
+    const nextDate = periods[firstVisibleIndex]?.start
+    if (nextDate) setVisibleStartDate((current) => current === nextDate ? current : nextDate)
+    if (scrollWidth - clientWidth - scrollLeft < periodWidth * 2.5) void extendTimeline()
+  }
+
+  async function refreshSelectedInventory(targetPropertyId = propertyId) {
+    const normalizedId = targetPropertyId.trim().toLowerCase()
+    const visibleRange = timelineRange(visibleStartDate, timelineScale)
+    if (!UUID_PATTERN.test(normalizedId)) return
+
+    setStatus('loading')
+    setError(undefined)
+    window.localStorage.setItem('vistay.inventory.propertyId', normalizedId)
+    try {
+      const inventoryPage = await fetchInventoryBlocks(graphqlUrl, accessToken, {
+        propertyId: normalizedId,
+        fromDate: visibleRange.from,
+        toDateExclusive: visibleRange.to,
+        types: section === 'map' ? [] : bookingBlockTypes,
+        statuses: [],
+        first: 100,
+      })
+      setPage(inventoryPage)
+      setSelectedBlock((current) => inventoryPage.nodes.find((node) => node.inventoryBlockId === current?.inventoryBlockId))
+      setStatus('ready')
+    } catch (reason) {
+      setStatus('error')
+      setError(errorCopy(reason))
+    }
+  }
+
+  function selectTimelineUnit(unit: TimelineUnit) {
+    if (unit.id === propertyId) return
+    setPropertyId(unit.id)
+    setSelectedBlock(undefined)
+    void refreshSelectedInventory(unit.id)
   }
 
   async function handleCreate(input: {
@@ -279,11 +504,11 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, section }:
       })
       setShowCreate(false)
       setNotice('Đã tạo block tồn phòng và ghi nhận audit.')
-      await load()
+      await refreshSelectedInventory()
     } catch (reason) {
       const copy = errorCopy(reason)
       setCommandError(copy)
-      if (copy.code === 'STALE_INVENTORY_REVISION') await load()
+      if (copy.code === 'STALE_INVENTORY_REVISION') await refreshSelectedInventory()
     } finally {
       setCommandStatus('idle')
     }
@@ -305,18 +530,16 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, section }:
       })
       setSelectedBlock(undefined)
       setNotice('Đã giải phóng block. Lịch sử vẫn được giữ nguyên.')
-      await load()
+      await refreshSelectedInventory()
     } catch (reasonValue) {
       const copy = errorCopy(reasonValue)
       setCommandError(copy)
-      if (copy.code === 'STALE_INVENTORY_REVISION') await load()
+      if (copy.code === 'STALE_INVENTORY_REVISION') await refreshSelectedInventory()
     } finally {
       setCommandStatus('idle')
     }
   }
 
-  const activeCount = page?.nodes.filter((node) => node.status === 'ACTIVE' || node.status === 'TENTATIVE').length ?? 0
-  const operatorCount = page?.nodes.filter((node) => operatorTypes.includes(node.type as OperatorInventoryBlockType)).length ?? 0
   const bookingBlocks = page?.nodes.filter((node) => bookingBlockTypes.includes(node.type)) ?? []
   const sectionBlocks = bookingBlocks.filter((node) => {
     if (section === 'reservations') return true
@@ -324,65 +547,55 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, section }:
     if (section === 'check-out') return node.endDateExclusive > fromDate && node.endDateExclusive <= toDateExclusive
     return false
   })
-  const copy = sectionCopy[section]
-
+  const periodWidth = timelineScale === 'day' ? 64 : timelineScale === 'week' ? 88 : 96
+  const periodUnit = timelineScale === 'day' ? 'ngày' : timelineScale === 'week' ? 'tuần' : 'tháng'
+  const cityOptions = portfolio.cities
+  const stayingCount = bookings.filter((booking) => booking.status === 'CHECKED_IN').length
+  const arrivingToday = bookings.filter((booking) => booking.checkInDate === today && booking.status !== 'CANCELLED').length
+  const barsForUnit = (unit: TimelineUnit): TimelineBar[] => [
+    ...bookings.filter((booking) => booking.propertyId === unit.id && booking.checkOutDate > fromDate && booking.checkInDate < toDateExclusive).map((booking) => ({
+      id: booking.id,
+      type: 'BOOKING' as const,
+      status: booking.status,
+      startDate: booking.checkInDate,
+      endDateExclusive: booking.checkOutDate,
+      title: booking.bookingCode,
+      subtitle: booking.guestName,
+    })),
+    ...(unit.id === propertyId ? (page?.nodes ?? []).filter((node) => !bookingBlockTypes.includes(node.type)).map((node) => ({
+      id: node.inventoryBlockId,
+      type: node.type,
+      status: node.status,
+      startDate: node.startDate,
+      endDateExclusive: node.endDateExclusive,
+      title: typeLabels[node.type],
+      subtitle: statusLabels[node.status],
+      node,
+    })) : []),
+  ]
   return (
-    <section className="inventory-workspace" ref={root} aria-labelledby="inventory-title">
-      <header className="inventory-heading">
-        <div>
-          <p className="eyebrow">{copy.eyebrow}</p>
-          <h2 id="inventory-title">{copy.title}</h2>
-          <p>{copy.description}</p>
+    <section className="inventory-workspace" ref={root} aria-label="Sơ đồ booking">
+      <header className="inventory-commandbar" aria-label="Điều khiển sơ đồ booking">
+        <div className="inventory-rail-summary" aria-label="Tóm tắt lịch phòng">
+          <article className="inventory-rail-metric"><span>Căn</span><strong>{filteredUnits.length}</strong></article>
+          <article className="inventory-rail-metric"><span>Đang ở</span><strong>{stayingCount}</strong></article>
+          <article className="inventory-rail-metric"><span>Đến hôm nay</span><strong>{arrivingToday}</strong></article>
         </div>
-        <div className={`inventory-heading-actions${section !== 'map' ? ' summary-only' : ''}`}>
-          <div className="inventory-heading-signal" aria-label="Tóm tắt lịch phòng">
-            <div>
-              <span>Đang bán</span>
-              <strong>{availability ? (availability.available ? 'Có' : 'Chặn') : '—'}</strong>
-            </div>
-            <div>
-              <span>Block hiệu lực</span>
-              <strong>{page ? activeCount : '—'}</strong>
-            </div>
-            <div>
-              <span>Giao nhau</span>
-              <strong>{availability ? availability.overlaps.length : '—'}</strong>
-            </div>
-          </div>
-          {section === 'map' && <button className="inventory-create-button" disabled={!canManage || !page} onClick={() => setShowCreate(true)}>
-            <Plus weight="bold" /> Tạo block
-          </button>}
+        <div className="inventory-location-filters" aria-label="Lọc căn theo vị trí">
+          <label><span>Thành phố</span><select value={cityFilter} onChange={(event) => { setCityFilter(event.target.value); setAreaFilter('ALL'); setBuildingFilter('ALL') }}><option value="ALL">Tất cả</option>{cityOptions.map((city) => <option key={city.id} value={city.id}>{city.name}</option>)}</select></label>
+          <label><span>Khu vực</span><select value={areaFilter} onChange={(event) => { setAreaFilter(event.target.value); setBuildingFilter('ALL') }}><option value="ALL">Tất cả</option>{areaOptions.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}</select></label>
+          <label><span>Tòa</span><select value={buildingFilter} onChange={(event) => setBuildingFilter(event.target.value)}><option value="ALL">Tất cả</option>{buildingOptions.map((building) => <option key={building.id} value={building.id}>{building.name}</option>)}</select></label>
         </div>
-      </header>
-
-      <section className="inventory-toolbar" aria-label="Bộ lọc tồn phòng">
-        <label className="property-search">
-          <MagnifyingGlass aria-hidden />
-          <span>Mã căn</span>
-          <input value={propertyId} onChange={(event) => setPropertyId(event.target.value)} placeholder="UUID căn lưu trú" />
-        </label>
-        <div className="date-window">
-          <button aria-label="Lùi 7 ngày" onClick={() => shiftWindow(-7)}><CaretLeft /></button>
-          <label><span>Từ ngày</span><input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} /></label>
-          <label><span>Đến trước ngày</span><input type="date" value={toDateExclusive} onChange={(event) => setToDateExclusive(event.target.value)} /></label>
-          <button aria-label="Tiến 7 ngày" onClick={() => shiftWindow(7)}><CaretRight /></button>
+        <div className="inventory-scale-control" role="group" aria-label="Đơn vị hiển thị timeline">
+          {([['day', 'Ngày'], ['week', 'Tuần'], ['month', 'Tháng']] as const).map(([value, label]) => (
+            <button type="button" className={timelineScale === value ? 'active' : ''} aria-pressed={timelineScale === value} key={value} onClick={() => changeTimelineScale(value)}>{label}</button>
+          ))}
         </div>
-        <button className="inventory-apply-button" onClick={() => void load()} disabled={status === 'loading'}>
-          {status === 'loading' ? <SpinnerGap className="spinner" /> : <Funnel />} Áp dụng
+        <label className="inventory-start-date"><CalendarBlank /><span>Bắt đầu từ</span><input type="date" value={visibleStartDate} onChange={(event) => changeStartDate(event.target.value)} /></label>
+        <button className="inventory-create-button" disabled={!canManage || !page || status === 'loading'} onClick={() => setShowCreate(true)}>
+          <Plus weight="bold" /> Tạo block
         </button>
-      </section>
-
-      {section === 'map' && <details className="inventory-filter-panel">
-        <summary><Funnel /> Lọc loại và trạng thái <span>{selectedTypes.length + selectedStatuses.length || 'Tất cả'}</span></summary>
-        <div>
-          <fieldset><legend>Loại block</legend>{allTypes.map((type) => (
-            <button key={type} className={selectedTypes.includes(type) ? 'selected' : ''} onClick={() => toggleType(type)}>{typeLabels[type]}</button>
-          ))}</fieldset>
-          <fieldset><legend>Trạng thái</legend>{allStatuses.map((blockStatus) => (
-            <button key={blockStatus} className={selectedStatuses.includes(blockStatus) ? 'selected' : ''} onClick={() => toggleStatus(blockStatus)}>{statusLabels[blockStatus]}</button>
-          ))}</fieldset>
-        </div>
-      </details>}
+      </header>
 
       {error && status === 'error' && (
         <div className="inventory-alert" role="alert">
@@ -393,82 +606,61 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, section }:
       )}
 
       {status === 'loading' && !page && (
-        <div className="inventory-loading"><SpinnerGap className="spinner" /><span>Đang đồng bộ sơ đồ phòng…</span></div>
+        <div className="inventory-loading"><SpinnerGap className="spinner" /><span>Đang tải sơ đồ phòng…</span></div>
       )}
 
       {page && (
         <>
-          <section className="inventory-summary" aria-label="Tổng quan tồn phòng">
-            <article className="inventory-summary-card availability-card">
-              <span>Tình trạng khoảng xem</span>
-              <strong>{availability?.available ? 'Có thể bán' : 'Đang bị chặn'}</strong>
-              <small>{availability?.available ? <CheckCircle /> : <WarningCircle />}{availability?.overlaps.length ?? 0} khoảng giao nhau</small>
-            </article>
-            <article className="inventory-summary-card">
-              <span>Revision tồn phòng</span><strong>{page.inventoryRevision}</strong><small><ArrowClockwise /> So khớp trước mọi lệnh ghi</small>
-            </article>
-            <article className="inventory-summary-card">
-              <span>{copy.countLabel}</span><strong>{section === 'map' ? activeCount : sectionBlocks.length}</strong><small><DoorOpen /> {section === 'map' ? `${operatorCount} block vận hành trong kết quả` : `${bookingBlocks.length} booking trong dữ liệu hiện tại`}</small>
-            </article>
-            <article className="inventory-summary-card branch-card">
-              <span>Chi nhánh đã xác minh</span><strong title={page.branchId}>{shortId(page.branchId)}</strong><small>Membership v{page.propertyMembershipVersion}</small>
-            </article>
-          </section>
-
           {section === 'map' && <section className="inventory-board" aria-label="Timeline block tồn phòng">
             <div className="inventory-board-heading">
-              <div><p className="eyebrow">TIMELINE</p><h3>Căn {shortId(propertyId.trim())}</h3></div>
+              <div><h3 id="inventory-title">Lịch căn theo vị trí</h3><span>{filteredUnits.length} căn · {periods.length} {periodUnit} · kéo sang phải để nạp tiếp, chọn ngày để xem mốc trước</span></div>
               <div className="inventory-legend">
-                <span><i className="active" /> Đang chặn</span><span><i className="history" /> Lịch sử</span>
+                <span><i className="booking" /> Booking</span><span><i className="active" /> Vận hành</span><span><i className="history" /> Đã kết thúc</span>
               </div>
             </div>
-            <div className="inventory-timeline-scroll">
-              <div className="inventory-timeline" style={{ '--day-count': days.length } as CSSProperties}>
-                <div className="timeline-corner">Căn / block</div>
-                {days.map((day) => { const label = formatDay(day); return <div className="timeline-day" key={day}><span>{label.weekday}</span><strong>{label.day}</strong></div> })}
-                {(page.nodes.length ? page.nodes : [undefined]).map((node) => {
-                  const start = node ? Math.max(0, dateDistance(fromDate, node.startDate)) : 0
-                  const end = node ? Math.min(days.length, dateDistance(fromDate, node.endDateExclusive)) : days.length
-                  const historical = node?.status === 'RELEASED' || node?.status === 'CANCELLED'
-                  return (
-                    <div className="timeline-row" key={node?.inventoryBlockId ?? 'empty'}>
-                      <div className="timeline-row-label">
-                        <strong>{node ? typeLabels[node.type] : 'Chưa có block'}</strong>
-                        <span>{node ? statusLabels[node.status] : 'Khoảng này đang trống'}</span>
-                      </div>
-                      <div className="timeline-grid">
-                        {days.map((day) => <i key={day} />)}
-                        {node && end > start && (
-                          <button
-                            className={`inventory-block-bar type-${node.type.toLowerCase()} ${historical ? 'historical' : ''}`}
-                            style={{ gridColumn: `${start + 1} / ${end + 1}`, gridRow: 1 }}
-                            onClick={() => { setSelectedBlock(node); setCommandError(undefined) }}
-                            title={`${typeLabels[node.type]} · ${node.startDate} → ${node.endDateExclusive}`}
-                          >
-                            <strong>{typeLabels[node.type]}</strong><span>{node.startDate.slice(5)} → {node.endDateExclusive.slice(5)}</span>
-                          </button>
-                        )}
-                      </div>
+            <div className="inventory-timeline-frame">
+              <div className="inventory-timeline-ledger">
+                <div className="timeline-corner">Danh sách căn</div>
+                {filteredUnits.map((unit) => (
+                  <button type="button" className={`timeline-row-label${unit.id === propertyId ? ' selected' : ''}`} key={unit.id} onClick={() => selectTimelineUnit(unit)} title={`${unit.name} · ${unit.path}`}>
+                    <strong>{unit.unitNumber || unit.code}</strong>
+                    <span>{unit.buildingName} · {unit.floorName}</span>
+                  </button>
+                ))}
+                {filteredUnits.length === 0 && <div className="timeline-row-label timeline-empty-label"><strong>Không có căn</strong><span>Đổi bộ lọc vị trí</span></div>}
+              </div>
+              <div className="inventory-timeline-scroll" ref={timelineScroll} onScroll={(event) => synchronizeVisibleDate(event.currentTarget.scrollLeft, event.currentTarget.scrollWidth, event.currentTarget.clientWidth)}>
+                <div className={`inventory-timeline scale-${timelineScale}`} style={{ '--period-count': periods.length, '--period-width': `${periodWidth}px`, width: `${periods.length * periodWidth}px` } as CSSProperties}>
+                  <div className="timeline-period-header">
+                    {periods.map((period) => <div className="timeline-day" key={period.key}><span>{period.eyebrow}</span><strong>{period.label}</strong></div>)}
+                  </div>
+                  {filteredUnits.map((unit) => {
+                    const bars = barsForUnit(unit)
+                    return <div className="timeline-grid" key={unit.id}>
+                      {periods.map((period) => <i key={period.key} />)}
+                      {bars.map((bar) => {
+                        const startOffset = timelinePixelOffset(bar.startDate, periods, periodWidth)
+                        const endOffset = timelinePixelOffset(bar.endDateExclusive, periods, periodWidth)
+                        const historical = ['RELEASED', 'CANCELLED', 'CHECKED_OUT'].includes(bar.status)
+                        if (endOffset <= startOffset) return null
+                        return <button
+                          className={`inventory-block-bar type-${bar.type.toLowerCase()} ${historical ? 'historical' : ''}`}
+                          style={{ left: `${startOffset}px`, width: `${Math.max(5, endOffset - startOffset)}px` }}
+                          key={bar.id}
+                          onClick={() => { if (bar.node) { setSelectedBlock(bar.node); setCommandError(undefined) } }}
+                          title={`${bar.title} · đến ${bar.startDate} · đi ${bar.endDateExclusive}`}
+                        >
+                          <strong>{bar.title}</strong><small>{bar.subtitle}</small>
+                        </button>
+                      })}
                     </div>
-                  )
-                })}
+                  })}
+                  {filteredUnits.length === 0 && <div className="timeline-grid timeline-empty-grid">{periods.map((period) => <i key={period.key} />)}</div>}
+                </div>
               </div>
             </div>
             {page.pageInfo.hasNextPage && <p className="inventory-page-warning">Đang hiển thị 100 block mới nhất. Thu hẹp bộ lọc để xem phần còn lại.</p>}
-          </section>}
-
-          {section === 'map' && <section className="inventory-activity-strip" aria-label="Block cập nhật gần đây">
-            <div><ClockCounterClockwise /><span>Hoạt động gần đây</span></div>
-            <div className="inventory-activity-track">
-              {page.nodes.slice(0, 6).map((node) => (
-                <button key={node.inventoryBlockId} onClick={() => setSelectedBlock(node)}>
-                  <i className={`type-${node.type.toLowerCase()}`} />
-                  <span>{typeLabels[node.type]} · {statusLabels[node.status]}</span>
-                  <time>{new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short' }).format(new Date(node.updatedAt))}</time>
-                </button>
-              ))}
-              {page.nodes.length === 0 && <span>Chưa có lịch sử block trong khoảng đã chọn.</span>}
-            </div>
+            {timelineTruncated && <p className="inventory-page-warning">Khoảng vừa nạp có hơn 2.000 booking. Hãy lọc hẹp vị trí để đối chiếu đầy đủ.</p>}
           </section>}
 
           {section !== 'map' && (

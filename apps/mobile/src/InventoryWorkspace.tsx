@@ -14,6 +14,7 @@ import {
   ApiError,
   createInventoryBlock,
   fetchInventoryBlocks,
+  fetchPropertyPortfolio,
   fetchPropertyAvailability,
   releaseInventoryBlock,
   type InventoryBlockManagementNode,
@@ -22,6 +23,7 @@ import {
   type InventoryBlockType,
   type OperatorInventoryBlockType,
   type PropertyAvailabilityObservation,
+  type PropertyUnitRecord,
 } from '@vistay/admin-api-client'
 
 import type { MobileWorkspaceProps } from './mobileRuntime'
@@ -252,8 +254,10 @@ function BookingOperationList({ blocks, section, fromDate, toDateExclusive, onSe
 export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, runtime, authorizationReady = true, section = 'map', sessionGuard, onPendingChange, onUnknownOutcome }: InventoryWorkspaceProps) {
   const today = useMemo(() => isoToday(), [])
   const [propertyId, setPropertyId] = useState(LOCAL_MANAGEMENT_PROPERTY)
+  const [propertyCatalog, setPropertyCatalog] = useState<(PropertyUnitRecord & { path: string })[]>([])
   const [fromDate, setFromDate] = useState(today)
   const [toDateExclusive, setToDateExclusive] = useState(() => addDays(today, 14))
+  const timelineDays = useMemo(() => Array.from({ length: Math.max(0, Math.min(31, dateDistance(fromDate, toDateExclusive))) }, (_, index) => addDays(fromDate, index)), [fromDate, toDateExclusive])
   const [page, setPage] = useState<InventoryBlockManagementPage>()
   const [availability, setAvailability] = useState<PropertyAvailabilityObservation>()
   const [status, setStatus] = useState<LoadStatus>('idle')
@@ -308,6 +312,18 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, runtime, a
   const loadLatest = useRef<() => Promise<InventoryBlockManagementPage | undefined>>(async () => undefined)
   const canManage = viewer.permissions.includes('inventory:block')
   const isBusy = effectivePending || commandStatus === 'loading'
+
+  useEffect(() => {
+    let active = true
+    void fetchPropertyPortfolio(graphqlUrl, accessToken, {}).then((portfolio) => {
+      if (!active) return
+      const mapped = portfolio.cities.flatMap((city) => city.areas.flatMap((area) => area.buildings.flatMap((building) => building.floors.flatMap((floor) =>
+        floor.units.filter((unit) => Boolean(unit.branchId)).map((unit) => ({ ...unit, path: `${building.name} · ${floor.name}` }))))))
+      setPropertyCatalog(mapped)
+      if (mapped.length) setPropertyId((current) => mapped.some((unit) => unit.id === current) ? current : mapped[0].id)
+    }).catch(() => undefined)
+    return () => { active = false }
+  }, [accessToken, graphqlUrl])
 
   const load = useCallback(async (quiet = false): Promise<InventoryBlockManagementPage | undefined> => {
     if (currentContext.current !== contextKey || !runtime.isOnline || !runtime.isActive) return undefined
@@ -543,8 +559,7 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, runtime, a
     <View style={styles.workspace}>
       <View style={styles.heading}>
         <View style={styles.headingCopy}>
-          <Text style={styles.eyebrow}>{copy.eyebrow}</Text>
-          <Text style={styles.title}>{copy.title}.{`\n`}Chắc từng lệnh ghi.</Text>
+          <Text style={styles.title}>{copy.title}</Text>
           <Text style={styles.headingDetail}>{copy.detail}</Text>
         </View>
         <Pressable
@@ -559,7 +574,15 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, runtime, a
       </View>
 
       <View style={styles.filterCard}>
-        <Field label="Mã căn" value={propertyId} onChangeText={setPropertyId} placeholder="UUID căn lưu trú" />
+        <View style={styles.field}>
+          <Text style={styles.fieldLabel}>Căn lưu trú</Text>
+          {propertyCatalog.length ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.propertyChoices}>
+            {propertyCatalog.map((unit) => <Pressable key={unit.id} onPress={() => setPropertyId(unit.id)} style={[styles.propertyChoice, unit.id === propertyId && styles.propertyChoiceActive]}>
+              <Text numberOfLines={1} style={[styles.propertyChoiceName, unit.id === propertyId && styles.propertyChoiceNameActive]}>{unit.unitNumber || unit.code} · {unit.name}</Text>
+              <Text numberOfLines={1} style={[styles.propertyChoicePath, unit.id === propertyId && styles.propertyChoicePathActive]}>{unit.path}</Text>
+            </Pressable>)}
+          </ScrollView> : <Field label="Mã căn" value={propertyId} onChangeText={setPropertyId} placeholder="UUID căn lưu trú" />}
+        </View>
         <View style={styles.dateRow}>
           <View style={styles.dateField}><Field label="Từ ngày" value={fromDate} onChangeText={setFromDate} placeholder="YYYY-MM-DD" /></View>
           <View style={styles.dateField}><Field label="Đến trước ngày" value={toDateExclusive} onChangeText={setToDateExclusive} placeholder="YYYY-MM-DD" /></View>
@@ -608,6 +631,19 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, runtime, a
             <Text style={styles.partitionMeta}>Membership v{page.propertyMembershipVersion} · ngày kết thúc là exclusive</Text>
           </View>
           {page.pageInfo.hasNextPage && <Text accessibilityRole="alert" style={styles.notice}>Kết quả vượt quá 100 block. Hãy thu hẹp khoảng ngày trước khi thao tác.</Text>}
+
+          {section === 'map' && <View style={styles.timelineCard}>
+            <View style={styles.timelineTitleRow}><View><Text style={styles.sectionTitle}>Sơ đồ phòng</Text><Text style={styles.muted}>{timelineDays.length} ngày · chạm một hàng để xem chi tiết</Text></View><Text style={styles.count}>{active.length}</Text></View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View>
+                <View style={styles.timelineHeader}><View style={styles.timelineLabel}><Text style={styles.timelineLabelText}>Block</Text></View>{timelineDays.map((day) => <View key={day} style={styles.timelineDay}><Text style={styles.timelineDayWeek}>{new Intl.DateTimeFormat('vi-VN', { weekday: 'short', timeZone: 'UTC' }).format(new Date(`${day}T00:00:00Z`))}</Text><Text style={styles.timelineDayNumber}>{day.slice(8)}</Text></View>)}</View>
+                {(active.length ? active : [undefined]).map((block, row) => <Pressable key={block?.inventoryBlockId ?? 'empty'} disabled={!block} onPress={() => block && setSelectedBlock(block)} style={styles.timelineRow}>
+                  <View style={styles.timelineLabel}><Text numberOfLines={1} style={styles.timelineLabelStrong}>{block ? typeLabels[block.type] : 'Đang trống'}</Text><Text style={styles.timelineLabelText}>{block ? statusLabels[block.status] : 'Không có block'}</Text></View>
+                  {timelineDays.map((day, index) => { const occupied = Boolean(block && day >= block.startDate && day < block.endDateExclusive); const starts = occupied && (index === 0 || timelineDays[index - 1] < block!.startDate); return <View key={`${row}-${day}`} style={[styles.timelineCell, occupied && styles.timelineCellOccupied]}>{starts && <Text numberOfLines={1} style={styles.timelineCellText}>{block?.type === 'BOOKING' ? 'Booking' : block ? typeLabels[block.type] : ''}</Text>}</View> })}
+                </Pressable>)}
+              </View>
+            </ScrollView>
+          </View>}
 
           {section === 'map' && <><View style={styles.listHeader}><Text style={styles.sectionTitle}>Đang hiệu lực</Text><Text style={styles.count}>{active.length}</Text></View>
           {active.length ? active.map((block) => <BlockCard key={block.inventoryBlockId} block={block} onPress={() => { setSelectedBlock(block); setCommandError(undefined) }} />) : (
@@ -660,17 +696,24 @@ export function InventoryWorkspace({ graphqlUrl, accessToken, viewer, runtime, a
 }
 
 const styles = StyleSheet.create({
-  workspace: { marginTop: 34 },
+  workspace: { marginTop: 0 },
   heading: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   headingCopy: { flex: 1 },
-  headingDetail: { marginTop: 7, color: '#68756e', fontSize: 11, lineHeight: 17 },
+  headingDetail: { marginTop: 3, color: '#68756e', fontSize: 9, lineHeight: 14 },
   eyebrow: { color: '#68756e', fontSize: 10, fontWeight: '700', letterSpacing: 1.4 },
-  title: { marginTop: 8, color: '#17231d', fontSize: 30, lineHeight: 31, fontWeight: '700', letterSpacing: -1.4 },
+  title: { color: '#17231d', fontSize: 16, lineHeight: 20, fontWeight: '700', letterSpacing: -.3 },
   createButton: { minHeight: 44, paddingHorizontal: 15, borderRadius: 12, backgroundColor: '#17231d', alignItems: 'center', justifyContent: 'center' },
   createButtonText: { color: '#ffffff', fontSize: 12, fontWeight: '700' },
-  filterCard: { marginTop: 22, padding: 16, borderRadius: 18, borderWidth: 1, borderColor: '#d9ddd7', backgroundColor: '#fffef9', gap: 12 },
+  filterCard: { marginTop: 10, padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#d9ddd7', backgroundColor: '#fffef9', gap: 10 },
   field: { gap: 6 },
   fieldLabel: { color: '#68756e', fontSize: 10, fontWeight: '700', letterSpacing: .5 },
+  propertyChoices: { gap: 7, paddingRight: 8 },
+  propertyChoice: { width: 180, minHeight: 52, paddingHorizontal: 11, paddingVertical: 8, borderRadius: 9, borderWidth: 1, borderColor: '#d9ddd7', backgroundColor: '#f7f6f0', justifyContent: 'center' },
+  propertyChoiceActive: { borderColor: '#12544f', backgroundColor: '#12544f' },
+  propertyChoiceName: { color: '#17231d', fontSize: 11, fontWeight: '700' },
+  propertyChoiceNameActive: { color: '#ffffff' },
+  propertyChoicePath: { marginTop: 3, color: '#68756e', fontSize: 9 },
+  propertyChoicePathActive: { color: '#c8d8d3' },
   input: { minHeight: 46, paddingHorizontal: 12, borderRadius: 11, borderWidth: 1, borderColor: '#d9ddd7', backgroundColor: '#f7f6f0', color: '#17231d', fontSize: 12 },
   textarea: { minHeight: 82, paddingTop: 12, textAlignVertical: 'top' },
   dateRow: { flexDirection: 'row', gap: 10 },
@@ -695,6 +738,19 @@ const styles = StyleSheet.create({
   partitionLabel: { color: '#95a29a', fontSize: 9, fontWeight: '700', letterSpacing: .8 },
   partitionValue: { marginTop: 7, color: '#ffffff', fontSize: 17, fontWeight: '700' },
   partitionMeta: { marginTop: 4, color: '#aeb9b2', fontSize: 10 },
+  timelineCard: { marginTop: 10, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#d9ddd7', backgroundColor: '#fffef9', gap: 10 },
+  timelineTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  timelineHeader: { flexDirection: 'row' },
+  timelineRow: { flexDirection: 'row', minHeight: 48 },
+  timelineLabel: { width: 104, paddingHorizontal: 8, borderRightWidth: 1, borderBottomWidth: 1, borderColor: '#dde2dc', justifyContent: 'center' },
+  timelineLabelStrong: { color: '#17231d', fontSize: 9, fontWeight: '700' },
+  timelineLabelText: { color: '#68756e', fontSize: 8 },
+  timelineDay: { width: 44, height: 42, borderRightWidth: 1, borderBottomWidth: 1, borderColor: '#dde2dc', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f3f5f0' },
+  timelineDayWeek: { color: '#68756e', fontSize: 7 },
+  timelineDayNumber: { color: '#17231d', fontSize: 10, fontWeight: '700' },
+  timelineCell: { width: 44, minHeight: 48, borderRightWidth: 1, borderBottomWidth: 1, borderColor: '#e7eae5', justifyContent: 'center', backgroundColor: '#ffffff' },
+  timelineCellOccupied: { backgroundColor: '#8bbb92' },
+  timelineCellText: { width: 88, paddingLeft: 5, color: '#092328', fontSize: 8, fontWeight: '700', zIndex: 2 },
   listHeader: { marginTop: 30, marginBottom: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sectionTitle: { color: '#17231d', fontSize: 21, fontWeight: '700', letterSpacing: -.6 },
   count: { minWidth: 28, paddingVertical: 5, paddingHorizontal: 8, borderRadius: 20, backgroundColor: '#e6e8e0', color: '#52645a', textAlign: 'center', fontSize: 10, fontWeight: '700' },

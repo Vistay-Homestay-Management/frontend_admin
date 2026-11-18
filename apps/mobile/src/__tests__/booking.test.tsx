@@ -10,8 +10,10 @@ import type { NotificationInboxModel } from '../useBackofficeData'
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const inventoryMocks = vi.hoisted(() => ({
+  fetchAdminBookingTimeline: vi.fn(),
   fetchInventoryBlocks: vi.fn(),
   fetchPropertyAvailability: vi.fn(),
+  fetchPropertyPortfolio: vi.fn(),
   createInventoryBlock: vi.fn(),
   releaseInventoryBlock: vi.fn(),
 }))
@@ -21,6 +23,7 @@ vi.mock('@expo/vector-icons', () => ({
 }))
 
 vi.mock('expo-crypto', () => ({ randomUUID: () => '6cb94034-7bfa-4c2e-a6ad-69ad6b3bb755' }))
+vi.mock('expo/fetch', () => ({ fetch: vi.fn() }))
 
 vi.mock('react-native', () => ({
   ActivityIndicator: 'ActivityIndicator',
@@ -63,7 +66,7 @@ const mockViewer: BackofficeViewer = {
   avatarMediaId: null,
   profileVersion: 1,
   roles: ['ADMIN'],
-  permissions: ['inventory:read', 'inventory:block'],
+  permissions: ['booking:read', 'inventory:read', 'inventory:block'],
   authorizationVersion: 2,
 }
 
@@ -112,6 +115,23 @@ function createMockAdminContext(
 describe('BookingScreen with Expo Router and Mobile Runtime', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    inventoryMocks.fetchPropertyPortfolio.mockResolvedValue({
+      branches: [{ id: 'branch-1', code: 'HN', name: 'Hà Nội' }],
+      cities: [{
+        id: 'city-1', code: 'HANOI', name: 'Hà Nội',
+        areas: [{
+          id: 'area-1', cityId: 'city-1', code: 'CENTER', name: 'Trung tâm',
+          buildings: [{
+            id: 'building-1', areaId: 'area-1', code: 'B1', name: 'Tòa B1', address: 'Hà Nội',
+            floors: [{
+              id: 'floor-1', buildingId: 'building-1', code: 'F1', name: 'Tầng 1', floorNumber: 1,
+              units: [{ id: 'unit-1', floorId: 'floor-1', branchId: 'branch-1', code: 'U101', unitNumber: '101', name: 'Căn 101', operatingModel: 'MANAGEMENT', operationalStatus: 'ACTIVE', bedroomCount: 1, bathroomCount: 1, capacity: 2, currency: 'VND', version: '1' }],
+            }],
+          }],
+        }],
+      }],
+    })
+    inventoryMocks.fetchAdminBookingTimeline.mockResolvedValue({ nodes: [], fromDate: '2026-11-17', toDateExclusive: '2026-12-18', truncated: false })
     inventoryMocks.fetchInventoryBlocks.mockResolvedValue({
       nodes: [],
       pageInfo: { hasNextPage: false, endCursor: null, startCursor: null, cursorState: 'ACTIVE', retainedFrom: null, reconcileFrom: null },
@@ -127,7 +147,7 @@ describe('BookingScreen with Expo Router and Mobile Runtime', () => {
     }))
   })
 
-  it('renders BookingScreen within AdminProvider propagating runtime to InventoryWorkspace', async () => {
+  it('renders the mobile booking timeline and requests one batched range', async () => {
     const adminContext = createMockAdminContext()
     const renderer = createRoot({ textComponentTypes: ['Text'] })
     await act(async () => {
@@ -139,9 +159,11 @@ describe('BookingScreen with Expo Router and Mobile Runtime', () => {
     })
     const text = renderedText(renderer.container.toJSON())
     expect(text).toContain('Booking')
-    expect(text).toContain('Lịch khả dụng')
-    expect(inventoryMocks.fetchInventoryBlocks).toHaveBeenCalled()
-    expect(inventoryMocks.fetchPropertyAvailability).toHaveBeenCalled()
+    expect(text).toContain('Sơ đồ')
+    expect(text).toContain('NgàyTuầnTháng')
+    expect(text).toContain('Thành phốTất cả')
+    expect(inventoryMocks.fetchPropertyPortfolio).toHaveBeenCalledTimes(1)
+    expect(inventoryMocks.fetchAdminBookingTimeline).toHaveBeenCalledTimes(1)
   })
 
   it('reflects offline runtime state when runtime.isOnline is false by suppressing network queries', async () => {

@@ -29,7 +29,7 @@
     },
     "plugins": [
       "expo-secure-store",
-      "expo-web-browser",
+      "expo-web-browser/app.plugin.js",
       "expo-router"
     ]
   }

@@ -49,7 +49,7 @@ function AuthenticatedShell({ accessToken }: { accessToken: string }) {
   return <AdminProvider value={{ accessToken, authorizationReady: profile.authorizationReady, config, inbox, isRevalidating: profile.isRevalidating, retryViewer: profile.retry, runtime, viewer: profile.viewer }}>
     <SafeAreaView edges={['top', 'left', 'right']} style={styles.safe}>
       <View style={styles.topbar}>
-        <Pressable accessibilityLabel="Về Tổng quan" onPress={() => router.push('/overview')} style={styles.brand}>
+        <Pressable accessibilityLabel="Về Tổng quan" onPress={() => router.replace('/overview')} style={styles.brand}>
           <View style={[styles.brandMark, compact && styles.brandMarkCompact]}>
             <Image resizeMode="contain" source={require('../../../../web/src/assets/vistay-logo.png')} style={styles.brandLogo} />
           </View>
@@ -68,7 +68,9 @@ function AuthenticatedShell({ accessToken }: { accessToken: string }) {
       <ScrollView horizontal contentContainerStyle={styles.navContent} showsHorizontalScrollIndicator={false} style={styles.nav}>
         {navigation.map((item) => {
           const selected = pathname === item.href
-          return <Pressable accessibilityRole="tab" accessibilityState={{ selected }} key={item.href} onPress={() => router.push(item.href)} style={[styles.navItem, selected && styles.navItemActive]}>
+          return <Pressable accessibilityRole="tab" accessibilityState={{ selected }} key={item.href} onPress={() => {
+            if (!selected) router.replace(item.href)
+          }} style={[styles.navItem, selected && styles.navItemActive]}>
             <Ionicons color={selected ? palette.white : '#C4D6CC'} name={item.icon} size={18} />
             <Text style={[styles.navText, selected && styles.navTextActive]}>{item.label}</Text>
           </Pressable>

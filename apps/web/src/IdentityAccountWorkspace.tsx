@@ -6,6 +6,7 @@ import {
   Key,
   LinkSimple,
   LockKey,
+  MagnifyingGlass,
   PaperPlaneTilt,
   Plus,
   ShieldCheck,
@@ -30,6 +31,7 @@ import {
 } from '@vistay/admin-api-client'
 
 export type IdentityAccountSection = 'customers' | 'hosts' | 'admins'
+type IdentityAccountView = 'unlinked' | 'linked' | 'reviews'
 
 const sectionType: Record<IdentityAccountSection, UserDirectoryAccountType> = {
   customers: 'CUSTOMER', hosts: 'HOST', admins: 'ADMIN',
@@ -59,6 +61,10 @@ export function IdentityAccountWorkspace({ graphqlUrl, authApiUrl, accessToken, 
   const [error, setError] = useState('')
   const [reviews, setReviews] = useState<ProfileLinkReview[]>([])
   const [policy, setPolicy] = useState<IdentityPolicy>()
+  const [activeView, setActiveView] = useState<IdentityAccountView>('unlinked')
+  const [policyOpen, setPolicyOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const [previewed, setPreviewed] = useState<UserDirectoryEntry>()
   const [selected, setSelected] = useState<UserDirectoryEntry>()
   const [mode, setMode] = useState<'DIRECT' | 'INVITATION'>('INVITATION')
   const [temporaryPassword, setTemporaryPassword] = useState('')
@@ -91,6 +97,7 @@ export function IdentityAccountWorkspace({ graphqlUrl, authApiUrl, accessToken, 
     if (!canReadUsers) return
     setLoading(true)
     setError('')
+    setPreviewed(undefined)
     try {
       const requests = [
         fetchUserDirectory(graphqlUrl, accessToken, { accountType, first: 100 }, signal),
@@ -121,6 +128,18 @@ export function IdentityAccountWorkspace({ graphqlUrl, authApiUrl, accessToken, 
 
   const unlinked = useMemo(() => nodes.filter((entry) => !entry.accountId), [nodes])
   const linked = useMemo(() => nodes.filter((entry) => entry.accountId), [nodes])
+  const visibleAccounts = useMemo(() => {
+    const source = activeView === 'linked' ? linked : unlinked
+    const query = search.trim().toLocaleLowerCase('vi')
+    if (!query) return source
+    return source.filter((entry) => `${entry.displayName} ${entry.email ?? ''} ${entry.contactPhone ?? ''} ${entry.profileId} ${entry.accountId ?? ''}`.toLocaleLowerCase('vi').includes(query))
+  }, [activeView, linked, search, unlinked])
+
+  function changeView(view: IdentityAccountView) {
+    setActiveView(view)
+    setPreviewed(undefined)
+    setSearch('')
+  }
 
   function openAccount(entry: UserDirectoryEntry, nextMode: 'DIRECT' | 'INVITATION') {
     setSelected(entry)
@@ -207,9 +226,16 @@ export function IdentityAccountWorkspace({ graphqlUrl, authApiUrl, accessToken, 
 
   return (
     <section className="identity-account-workspace">
-      <header className="identity-account-heading">
-        <div><h2>Tài khoản {copy.title.toLowerCase()}</h2><p>Hồ sơ thuộc User; thông tin đăng nhập thuộc Authentication và Keycloak.</p></div>
-        <div className="identity-account-kpis"><span><strong>{linked.length}</strong> đã liên kết</span><span><strong>{unlinked.length}</strong> chưa có tài khoản</span><span><strong>{reviews.length}</strong> chờ duyệt</span></div>
+      <header className="identity-account-commandbar">
+        <nav aria-label={`Danh sách tài khoản ${copy.title.toLowerCase()}`}>
+          <button type="button" className={activeView === 'unlinked' ? 'active' : ''} onClick={() => changeView('unlinked')}><span>Chưa có tài khoản</span><strong>{unlinked.length}</strong></button>
+          <button type="button" className={activeView === 'linked' ? 'active' : ''} onClick={() => changeView('linked')}><span>Đã liên kết</span><strong>{linked.length}</strong></button>
+          {canReadReviews && <button type="button" className={activeView === 'reviews' ? 'active' : ''} onClick={() => changeView('reviews')}><span>Chờ duyệt</span><strong>{reviews.length}</strong></button>}
+        </nav>
+        <div className="identity-account-tools">
+          {canReadPolicy && policy && <button type="button" className={`identity-policy-trigger${policyOpen ? ' active' : ''}`} onClick={() => setPolicyOpen((open) => !open)}><Key /><span>Đăng ký {policy.registrationEnabled ? 'bật' : 'tắt'} · {policy.linkMode === 'AUTO_LINK' ? 'Tự liên kết' : 'Cần duyệt'}</span></button>}
+          {activeView !== 'reviews' && <label className="identity-account-search"><MagnifyingGlass /><span className="sr-only">Tìm hồ sơ tài khoản</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tên, email, điện thoại hoặc mã" /></label>}
+        </div>
       </header>
 
       {unavailableCapabilities.length > 0 && (
@@ -219,54 +245,9 @@ export function IdentityAccountWorkspace({ graphqlUrl, authApiUrl, accessToken, 
         </aside>
       )}
 
-      {loading && <div className="inline-state"><SpinnerGap className="spinner" />Đang tải tài khoản…</div>}
-      {error && <div className="inline-state error"><WarningCircle /><span>{error}</span><button onClick={() => void load()}><ArrowClockwise />Thử lại</button></div>}
-
-      {!loading && !error && (
-        <div className="identity-account-grid">
-          <section className="identity-account-panel unlinked">
-            <header><div><span>CHƯA CÓ TÀI KHOẢN</span><h3>Cần xử lý</h3></div><strong>{unlinked.length}</strong></header>
-            <div className="identity-account-list">
-              {unlinked.map((entry) => (
-                <article key={entry.profileId}>
-                  <span className="identity-mini-avatar">{initials(entry.displayName) || <UserCircle />}</span>
-                  <div><strong>{entry.displayName}</strong><small>{entry.email ?? 'Chưa có email để cấp tài khoản'}</small></div>
-                  <div className="identity-row-actions">
-                    {canProvision && entry.email
-                      ? <><button onClick={() => openAccount(entry, 'DIRECT')}><Plus />Tạo tài khoản</button><button onClick={() => openAccount(entry, 'INVITATION')}><PaperPlaneTilt />Gửi link</button></>
-                      : <span className="identity-action-locked" title={entry.email ? `Cần quyền ${copy.permission}` : 'Hồ sơ cần email trước khi cấp tài khoản'}><LockKey />{entry.email ? 'Chỉ xem' : 'Thiếu email'}</span>}
-                  </div>
-                </article>
-              ))}
-              {!unlinked.length && <p className="identity-account-empty">Mọi hồ sơ đang hiển thị đều đã có tài khoản.</p>}
-            </div>
-          </section>
-
-          <section className="identity-account-panel linked">
-            <header><div><span>TÀI KHOẢN HIỆN CÓ</span><h3>Đã liên kết</h3></div><strong>{linked.length}</strong></header>
-            <div className="identity-account-list">
-              {linked.map((entry) => (
-                <article key={entry.profileId}><span className="identity-mini-avatar linked"><CheckCircle /></span><div><strong>{entry.displayName}</strong><small>{entry.email ?? entry.accountId}</small></div><span className="identity-linked-state"><LinkSimple />Đã liên kết</span></article>
-              ))}
-              {!linked.length && <p className="identity-account-empty">Chưa có tài khoản đã liên kết.</p>}
-            </div>
-          </section>
-        </div>
-      )}
-
-      {canReadReviews && (
-        <section className="identity-review-queue">
-          <header><div><span>YÊU CẦU TỪ PORTAL</span><h3>Liên kết chờ duyệt</h3></div><strong>{reviews.length}</strong></header>
-          {reviews.map((item) => (
-            <article key={item.linkId}><div><ShieldCheck /><span><strong>{item.displayName ?? 'Hồ sơ chưa đặt tên'}</strong><small>{item.maskedRecipient ?? 'Email được bảo vệ'} · {new Date(item.requestedAt).toLocaleString('vi-VN')}</small></span></div><div>{canApprove && <button onClick={() => { setReviewing({ item, decision: 'APPROVE' }); setReviewReason('') }}><CheckCircle />Duyệt</button>}{canReject && <button className="danger" onClick={() => { setReviewing({ item, decision: 'REJECT' }); setReviewReason('') }}><XCircle />Từ chối</button>}</div></article>
-          ))}
-          {!reviews.length && <p className="identity-account-empty">Không có yêu cầu liên kết đang chờ.</p>}
-        </section>
-      )}
-
-      {policy && policyDraft && (
-        <section className="identity-policy-card">
-          <header><div><span>PORTAL POLICY · V{policy.policyVersion}</span><h3>Đăng ký và liên kết</h3></div><Key /></header>
+      {policyOpen && policy && policyDraft && (
+        <section className="identity-policy-strip">
+          <header><div><strong>Cấu hình đăng ký và liên kết</strong><span>Phiên bản {policy.policyVersion}</span></div><button type="button" onClick={() => setPolicyOpen(false)} aria-label="Đóng cấu hình"><X /></button></header>
           <div className="identity-policy-options">
             <label><input type="checkbox" checked={policyDraft.registrationEnabled} disabled={!canUpdatePolicy} onChange={(event) => { setPolicyDraft({ ...policyDraft, registrationEnabled: event.target.checked }); setPolicyAttemptKey(undefined) }} /><span><strong>Cho phép đăng ký trên web</strong><small>Tắt để chặn self sign-up ở portal {copy.title.toLowerCase()}.</small></span></label>
             <label><span>Luồng sau OTP</span><select value={policyDraft.linkMode} disabled={!canUpdatePolicy} onChange={(event) => { setPolicyDraft({ ...policyDraft, linkMode: event.target.value as IdentityPolicy['linkMode'] }); setPolicyAttemptKey(undefined) }}><option value="AUTO_LINK">Tự động liên kết</option><option value="REQUIRE_APPROVAL">Chờ Admin duyệt</option></select></label>
@@ -277,10 +258,61 @@ export function IdentityAccountWorkspace({ graphqlUrl, authApiUrl, accessToken, 
         </section>
       )}
 
-      {!canReadPolicy && (
-        <section className="identity-policy-locked">
-          <LockKey />
-          <div><strong>Chính sách đăng ký và liên kết</strong><span>Cần quyền <code>identity-policy:read</code> để xem cấu hình của portal {copy.title.toLowerCase()}.</span></div>
+      {loading && <div className="inline-state"><SpinnerGap className="spinner" />Đang tải tài khoản…</div>}
+      {error && <div className="inline-state error"><WarningCircle /><span>{error}</span><button onClick={() => void load()}><ArrowClockwise />Thử lại</button></div>}
+
+      {!loading && !error && (
+        <section className={`identity-account-board${activeView === 'reviews' ? ' review-mode' : ''}`}>
+          <div className="identity-account-results">
+            <header className="identity-account-table-head">
+              <span>Hồ sơ</span><span>Liên hệ</span><span>Trạng thái</span><span>Thao tác</span>
+            </header>
+          {activeView === 'unlinked' && <>
+            <div className="identity-account-list">
+              {visibleAccounts.map((entry) => (
+                <article key={entry.profileId} onMouseEnter={() => setPreviewed(entry)}>
+                  <span className="identity-mini-avatar">{initials(entry.displayName) || <UserCircle />}</span>
+                  <div><strong>{entry.displayName}</strong><small>{entry.profileId}</small></div>
+                  <span className="identity-account-contact">{entry.email ?? 'Chưa có email'}</span>
+                  <span className="identity-pending-state"><LockKey />Chưa liên kết</span>
+                  <div className="identity-row-actions">
+                    {canProvision && entry.email
+                      ? <><button onClick={() => openAccount(entry, 'DIRECT')}><Plus />Tạo tài khoản</button><button onClick={() => openAccount(entry, 'INVITATION')}><PaperPlaneTilt />Gửi link</button></>
+                      : <span className="identity-action-locked" title={entry.email ? `Cần quyền ${copy.permission}` : 'Hồ sơ cần email trước khi cấp tài khoản'}><LockKey />{entry.email ? 'Chỉ xem' : 'Thiếu email'}</span>}
+                  </div>
+                </article>
+              ))}
+              {!visibleAccounts.length && <p className="identity-account-empty">Không có hồ sơ chưa liên kết phù hợp.</p>}
+            </div>
+          </>}
+
+          {activeView === 'linked' && <>
+            <div className="identity-account-list">
+              {visibleAccounts.map((entry) => (
+                <article key={entry.profileId} onMouseEnter={() => setPreviewed(entry)}><span className="identity-mini-avatar linked"><CheckCircle /></span><div><strong>{entry.displayName}</strong><small>{entry.profileId}</small></div><span className="identity-account-contact">{entry.email ?? entry.accountId}</span><span className="identity-linked-state"><LinkSimple />Đã liên kết</span><span className="identity-account-id">{entry.accountId}</span></article>
+              ))}
+              {!visibleAccounts.length && <p className="identity-account-empty">Không có tài khoản liên kết phù hợp.</p>}
+            </div>
+          </>}
+
+          {activeView === 'reviews' && canReadReviews && <div className="identity-account-list identity-review-list">
+            {reviews.map((item) => (
+              <article key={item.linkId}><span className="identity-mini-avatar"><ShieldCheck /></span><div><strong>{item.displayName ?? 'Hồ sơ chưa đặt tên'}</strong><small>{item.profileId}</small></div><span className="identity-account-contact">{item.maskedRecipient ?? 'Email được bảo vệ'}</span><span className="identity-pending-state">{new Date(item.requestedAt).toLocaleString('vi-VN')}</span><div className="identity-row-actions">{canApprove && <button onClick={() => { setReviewing({ item, decision: 'APPROVE' }); setReviewReason('') }}><CheckCircle />Duyệt</button>}{canReject && <button className="danger" onClick={() => { setReviewing({ item, decision: 'REJECT' }); setReviewReason('') }}><XCircle />Từ chối</button>}</div></article>
+            ))}
+            {!reviews.length && <p className="identity-account-empty">Không có yêu cầu liên kết đang chờ.</p>}
+          </div>}
+          </div>
+          {activeView !== 'reviews' && <aside className={`identity-account-inspector${previewed ? ' populated' : ''}`} aria-live="polite">
+            {previewed ? <>
+              <header><span className="identity-mini-avatar">{initials(previewed.displayName) || <UserCircle />}</span><div><small>Xem nhanh hồ sơ</small><strong>{previewed.displayName}</strong></div></header>
+              <dl>
+                <div><dt>Email</dt><dd>{previewed.email ?? 'Chưa cập nhật'}</dd></div>
+                <div><dt>Điện thoại</dt><dd>{previewed.contactPhone ?? 'Chưa cập nhật'}</dd></div>
+                <div><dt>Tài khoản</dt><dd>{previewed.accountId ? 'Đã liên kết' : 'Chưa liên kết'}</dd></div>
+                <div><dt>Mã hồ sơ</dt><dd>{previewed.profileId}</dd></div>
+              </dl>
+            </> : <div className="identity-account-inspector-empty"><UserCircle /><strong>Xem nhanh hồ sơ</strong><span>Di chuột vào một bản ghi để xem thông tin.</span></div>}
+          </aside>}
         </section>
       )}
 
