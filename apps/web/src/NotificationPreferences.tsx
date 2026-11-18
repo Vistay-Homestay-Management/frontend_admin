@@ -6,6 +6,7 @@ import {
   type NotificationPreference,
   type NotificationPreferenceUpdateInput,
 } from '@vistay/admin-api-client'
+import { runtimeConfig } from './lib/runtimeConfig'
 
 interface NotificationPreferencesProps {
   graphqlUrl: string
@@ -90,7 +91,7 @@ function PreferenceRow({
   )
 }
 
-export function NotificationPreferences({ graphqlUrl, accessToken, pushEnabled = import.meta.env.VITE_NOTIFICATION_PUSH_ENABLED === 'true' }: NotificationPreferencesProps) {
+export function NotificationPreferences({ graphqlUrl, accessToken, pushEnabled = runtimeConfig.notificationPushEnabled ?? import.meta.env.VITE_NOTIFICATION_PUSH_ENABLED === 'true' }: NotificationPreferencesProps) {
   const [preferences, setPreferences] = useState<NotificationPreference[]>([])
   const [drafts, setDrafts] = useState<Record<string, PreferenceDraft>>({})
   const [revision, setRevision] = useState(0)

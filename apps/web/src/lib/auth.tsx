@@ -13,7 +13,7 @@ export function BackofficeAuthProvider({ config, children }: BackofficeAuthProvi
       authority={config.oidcIssuer}
       client_id={config.oidcClientId}
       redirect_uri={config.oidcRedirectUri}
-      post_logout_redirect_uri={window.location.origin}
+      post_logout_redirect_uri={config.oidcPostLogoutRedirectUri}
       response_type="code"
       scope="openid profile email notifications:read"
       automaticSilentRenew
