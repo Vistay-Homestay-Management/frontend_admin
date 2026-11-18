@@ -1,487 +1,331 @@
-import { useMemo, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import {
-  Buildings,
-  DoorOpen,
-  GridNine,
-  Key,
-  ListBullets,
-  MapPin,
-  PencilSimple,
-  Plus,
-  SquaresFour,
-  Stack,
-  X,
+  Buildings, DoorOpen, FileText, GridNine, HouseLine, ListBullets, MagnifyingGlass,
+  MapPin, Plus, SpinnerGap, SquaresFour, UserPlus, X,
 } from '@phosphor-icons/react'
-
-type PropertyStatus = 'Đang hoạt động' | 'Bảo trì' | 'Cần bổ sung'
-
-interface PropertyRow {
-  id: string
-  unitNumber: string
-  name: string
-  capacity: number
-  status: PropertyStatus
-  hasAccessCredential: boolean
-}
-
-interface FloorNode {
-  id: string
-  code: string
-  name: string
-  floorNumber: number
-  properties: PropertyRow[]
-}
-
-interface BuildingNode {
-  id: string
-  name: string
-  code: string
-  address: string
-  floors: FloorNode[]
-}
-
-interface AreaNode {
-  id: string
-  name: string
-  code: string
-  buildings: BuildingNode[]
-}
-
-interface CityNode {
-  id: string
-  name: string
-  code: string
-  areas: AreaNode[]
-}
-
-const statusClass: Record<PropertyStatus, string> = {
-  'Đang hoạt động': 'active',
-  'Bảo trì': 'maintenance',
-  'Cần bổ sung': 'missing',
-}
-
-const initialCities: CityNode[] = [
-  {
-    id: 'hcm',
-    code: 'HCM',
-    name: 'Thành phố Hồ Chí Minh',
-    areas: [
-      {
-        id: 'district-1',
-        name: 'Quận 1',
-        code: 'D1',
-        buildings: [
-          {
-            id: 'nguyen-hue',
-            name: 'Tòa Nguyễn Huệ',
-            code: 'NH-01',
-            address: '12 Nguyễn Huệ',
-            floors: [
-              {
-                id: 'nguyen-hue-f1', code: 'F01', name: 'Tầng 1', floorNumber: 1,
-                properties: [
-                  { id: 'p-101', unitNumber: 'A-101', name: 'Căn hướng phố', capacity: 2, status: 'Đang hoạt động', hasAccessCredential: true },
-                  { id: 'p-102', unitNumber: 'A-102', name: 'Căn một phòng ngủ', capacity: 3, status: 'Đang hoạt động', hasAccessCredential: true },
-                ],
-              },
-              {
-                id: 'nguyen-hue-f2', code: 'F02', name: 'Tầng 2', floorNumber: 2,
-                properties: [
-                  { id: 'p-201', unitNumber: 'A-201', name: 'Căn hai phòng ngủ', capacity: 4, status: 'Cần bổ sung', hasAccessCredential: false },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-      {
-        id: 'district-3',
-        name: 'Quận 3',
-        code: 'D3',
-        buildings: [
-          {
-            id: 'le-loi',
-            name: 'Tòa Lê Lợi',
-            code: 'LL-01',
-            address: '88 Lê Lợi',
-            floors: [
-              {
-                id: 'le-loi-f3', code: 'F03', name: 'Tầng 3', floorNumber: 3,
-                properties: [
-                  { id: 'p-301', unitNumber: 'B-301', name: 'Căn ven sông', capacity: 2, status: 'Đang hoạt động', hasAccessCredential: true },
-                ],
-              },
-              {
-                id: 'le-loi-f4', code: 'F04', name: 'Tầng 4', floorNumber: 4,
-                properties: [
-                  { id: 'p-401', unitNumber: 'B-401', name: 'Căn gia đình', capacity: 6, status: 'Bảo trì', hasAccessCredential: false },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'danang',
-    code: 'DAD',
-    name: 'Thành phố Đà Nẵng',
-    areas: [
-      {
-        id: 'son-tra',
-        name: 'Sơn Trà',
-        code: 'ST',
-        buildings: [
-          {
-            id: 'han-river',
-            name: 'Tòa Hàn River',
-            code: 'HR-01',
-            address: '24 Trần Hưng Đạo',
-            floors: [
-              {
-                id: 'han-river-f6', code: 'F06', name: 'Tầng 6', floorNumber: 6,
-                properties: [
-                  { id: 'p-601', unitNumber: 'C-601', name: 'Căn nhìn sông Hàn', capacity: 4, status: 'Đang hoạt động', hasAccessCredential: true },
-                  { id: 'p-602', unitNumber: 'C-602', name: 'Căn góc thành phố', capacity: 3, status: 'Đang hoạt động', hasAccessCredential: true },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  },
-]
+import {
+  createOwnerContract, createPropertyStructure, createPropertyUnit, createUserProfile,
+  fetchOwnerContracts, fetchPropertyPortfolio, fetchUserDirectory,
+  type BackofficeViewer, type OwnerContractRecord, type PropertyOperatingModel,
+  type PropertyPortfolio, type PropertyUnitRecord, type UserDirectoryEntry,
+} from '@vistay/admin-api-client'
 
 type PropertyView = 'structure' | 'list' | 'density'
-
+export type PropertySection = 'portfolio' | 'owned' | 'leased' | 'management' | 'contracts'
 type CreateKind = 'city' | 'area' | 'building' | 'floor' | 'unit'
+type CreateTarget = { kind: CreateKind; parentId?: string }
 
-interface CreateTarget {
-  kind: CreateKind
-  cityId?: string
-  areaId?: string
-  buildingId?: string
-  floorId?: string
+const modelCopy: Record<PropertyOperatingModel, { label: string; short: string }> = {
+  OWNED: { label: 'Sở hữu', short: 'Sở hữu' },
+  LEASED_BY_VISTAY: { label: 'Thuê vận hành', short: 'Thuê' },
+  MANAGEMENT: { label: 'Quản lý', short: 'Quản lý' },
 }
 
-const createLabels: Record<CreateKind, string> = {
-  city: 'thành phố',
-  area: 'khu vực',
-  building: 'tòa nhà',
-  floor: 'tầng',
-  unit: 'căn',
+const statusCopy: Record<string, string> = {
+  ONBOARDING: 'Đang thiết lập', ACTIVE: 'Đang hoạt động', MAINTENANCE: 'Bảo trì',
+  SUSPENDED: 'Tạm ngưng', OFFBOARDING: 'Đang bàn giao', INACTIVE: 'Ngừng hoạt động',
 }
+const CONTRACT_TODAY = new Date().toISOString().slice(0, 10)
+const CONTRACT_NEXT_YEAR = new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10)
+const CONTRACT_NUMBER = `HD-${Date.now().toString().slice(-8)}`
 
-export function PropertyManagement() {
+export function PropertyManagement({ graphqlUrl, accessToken, viewer, section }: {
+  graphqlUrl: string
+  accessToken: string
+  viewer: BackofficeViewer
+  section: PropertySection
+}) {
   const root = useRef<HTMLElement>(null)
-  const [catalog, setCatalog] = useState(initialCities)
-  const [cityId, setCityId] = useState('all')
-  const [areaId, setAreaId] = useState('all')
-  const [buildingId, setBuildingId] = useState('all')
+  const [portfolio, setPortfolio] = useState<PropertyPortfolio>({ branches: [], cities: [] })
+  const [contracts, setContracts] = useState<OwnerContractRecord[]>([])
+  const [search, setSearch] = useState('')
+  const [cityFilter, setCityFilter] = useState('ALL')
+  const [areaFilter, setAreaFilter] = useState('ALL')
+  const [buildingFilter, setBuildingFilter] = useState('ALL')
   const [view, setView] = useState<PropertyView>('structure')
   const [activeFloors, setActiveFloors] = useState<Record<string, string>>({})
-  const [notice, setNotice] = useState('')
   const [createTarget, setCreateTarget] = useState<CreateTarget | null>(null)
-  const [form, setForm] = useState({
-    name: '', code: '', address: '', cityId: '', areaId: '', buildingId: '', floorId: '',
-    floorNumber: '', unitNumber: '', capacity: '2',
-  })
+  const [createMenuOpen, setCreateMenuOpen] = useState(false)
+  const [contractOpen, setContractOpen] = useState(false)
+  const [selectedUnit, setSelectedUnit] = useState<PropertyUnitRecord | null>(null)
+  const [hosts, setHosts] = useState<UserDirectoryEntry[]>([])
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+  const [contractMessage, setContractMessage] = useState('')
 
-  const availableAreas = useMemo(
-    () => catalog.filter((city) => cityId === 'all' || city.id === cityId).flatMap((city) => city.areas),
-    [catalog, cityId],
-  )
-  const availableBuildings = useMemo(
-    () => availableAreas.filter((area) => areaId === 'all' || area.id === areaId).flatMap((area) => area.buildings),
-    [availableAreas, areaId],
-  )
-  const visibleCities = useMemo(() => catalog
-    .filter((city) => cityId === 'all' || city.id === cityId)
-    .map((city) => ({
+  const canCreateProperty = viewer.permissions.includes('property:create')
+  const canReadContracts = viewer.permissions.includes('contract:read')
+  const canCreateContract = viewer.permissions.includes('contract:create')
+  const canCreateHost = viewer.permissions.includes('host-profile:create')
+  const model: PropertyOperatingModel | 'ALL' = section === 'owned' ? 'OWNED'
+    : section === 'leased' ? 'LEASED_BY_VISTAY'
+      : section === 'management' ? 'MANAGEMENT' : 'ALL'
+  const isContractSection = section === 'contracts'
+
+  const areaOptions = useMemo(() => portfolio.cities
+    .filter((city) => cityFilter === 'ALL' || city.id === cityFilter)
+    .flatMap((city) => city.areas.map((area) => ({ id: area.id, name: area.name }))), [cityFilter, portfolio.cities])
+  const buildingOptions = useMemo(() => portfolio.cities
+    .filter((city) => cityFilter === 'ALL' || city.id === cityFilter)
+    .flatMap((city) => city.areas
+      .filter((area) => areaFilter === 'ALL' || area.id === areaFilter)
+      .flatMap((area) => area.buildings.map((building) => ({ id: building.id, name: building.name })))), [areaFilter, cityFilter, portfolio.cities])
+
+  const hierarchy = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase('vi')
+    return portfolio.cities.filter((city) => cityFilter === 'ALL' || city.id === cityFilter).map((city) => ({
       ...city,
-      areas: city.areas
-        .filter((area) => areaId === 'all' || area.id === areaId)
-        .map((area) => ({
-          ...area,
-          buildings: area.buildings.filter((building) => buildingId === 'all' || building.id === buildingId),
-        }))
-        .filter((area) => area.buildings.length > 0),
-    }))
-    .filter((city) => city.areas.length > 0), [catalog, cityId, areaId, buildingId])
+      areas: city.areas.filter((area) => areaFilter === 'ALL' || area.id === areaFilter).map((area) => ({
+        ...area,
+        buildings: area.buildings.filter((building) => buildingFilter === 'ALL' || building.id === buildingFilter).map((building) => ({
+          ...building,
+          floors: building.floors.map((floor) => ({
+            ...floor,
+            units: floor.units.filter((unit) => {
+              const modelMatch = model === 'ALL' || unit.operatingModel === model
+              const searchMatch = !query || `${city.name} ${area.name} ${building.name} ${building.address} ${floor.name} ${unit.code} ${unit.unitNumber ?? ''} ${unit.name}`.toLocaleLowerCase('vi').includes(query)
+              return modelMatch && searchMatch
+            }),
+          })).filter((floor) => floor.units.length > 0 || (!query && model === 'ALL')),
+        })).filter((building) => building.floors.length > 0),
+      })).filter((area) => area.buildings.length > 0),
+    })).filter((city) => city.areas.length > 0)
+  }, [areaFilter, buildingFilter, cityFilter, model, portfolio.cities, search])
 
-  const visibleBuildings = visibleCities.flatMap((city) => city.areas.flatMap((area) => area.buildings))
-  const visibleFloors = visibleBuildings.flatMap((building) => building.floors)
-  const visibleUnits = visibleCities.flatMap((city) => city.areas.flatMap((area) => area.buildings.flatMap((building) =>
-    building.floors.flatMap((floor) => floor.properties.map((unit) => ({ city, area, building, floor, unit }))))))
+  const units = useMemo(() => hierarchy.flatMap((city) => city.areas.flatMap((area) => area.buildings.flatMap((building) =>
+    building.floors.flatMap((floor) => floor.units.map((unit) => ({ city, area, building, floor, unit })))))), [hierarchy])
+  const buildingCount = hierarchy.reduce((count, city) => count + city.areas.reduce((sum, area) => sum + area.buildings.length, 0), 0)
+
+  async function load(signal?: AbortSignal) {
+    setLoading(true)
+    setMessage('')
+    setContractMessage('')
+    try {
+      const nextPortfolio = await fetchPropertyPortfolio(graphqlUrl, accessToken, {}, signal)
+      setPortfolio(nextPortfolio)
+      if (canReadContracts) {
+        try { setContracts(await fetchOwnerContracts(graphqlUrl, accessToken, {}, signal)) }
+        catch (error) {
+          if (!signal?.aborted) setContractMessage(error instanceof Error ? error.message : 'Không tải được hợp đồng')
+        }
+      }
+    } catch (error) {
+      if (!signal?.aborted) setMessage(error instanceof Error ? error.message : 'Không tải được danh mục căn')
+    } finally {
+      if (!signal?.aborted) setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void load(controller.signal)
+    return () => controller.abort()
+  }, [accessToken, graphqlUrl])
 
   useGSAP(() => {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-    gsap.fromTo('.property-management .building-board', { opacity: 0, y: 12 }, {
-      opacity: 1, y: 0, duration: 0.38, stagger: 0.055, ease: 'power2.out',
-    })
-    gsap.fromTo('.property-management .unit-card', { opacity: 0, y: 6 }, {
-      opacity: 1, y: 0, duration: 0.24, stagger: 0.025, delay: 0.04, ease: 'power2.out',
-    })
-    gsap.fromTo('.property-management .property-unit-row, .property-management .density-unit', { opacity: 0, y: 5 }, {
-      opacity: 1, y: 0, duration: 0.22, stagger: 0.018, ease: 'power2.out',
-    })
-  }, { scope: root, dependencies: [cityId, areaId, buildingId, activeFloors, view], revertOnUpdate: true })
+    if (!root.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    gsap.fromTo('.property-result-item', { opacity: 0, y: 7 }, { opacity: 1, y: 0, duration: .24, stagger: .018, ease: 'power2.out' })
+  }, { scope: root, dependencies: [section, model, view, loading], revertOnUpdate: true })
 
-  function announce(message: string) {
-    setNotice(message)
-    window.setTimeout(() => setNotice(''), 2600)
-  }
-
-  function changeCity(nextCityId: string) {
-    setCityId(nextCityId)
-    setAreaId('all')
-    setBuildingId('all')
-  }
-
-  function changeArea(nextAreaId: string) {
-    setAreaId(nextAreaId)
-    setBuildingId('all')
-  }
-
-  function openCreate(target: CreateTarget) {
-    const requestedAreaId = target.areaId ?? (areaId !== 'all' ? areaId : '')
-    const areaOwner = requestedAreaId ? catalog.find((city) => city.areas.some((area) => area.id === requestedAreaId)) : undefined
-    const selectedCityId = target.cityId ?? (cityId !== 'all' ? cityId : areaOwner?.id ?? catalog[0]?.id ?? '')
-    const selectedCity = catalog.find((city) => city.id === selectedCityId)
-    const selectedAreaId = requestedAreaId || selectedCity?.areas[0]?.id || ''
-    const selectedArea = selectedCity?.areas.find((area) => area.id === selectedAreaId)
-    const selectedBuildingId = target.buildingId ?? (buildingId !== 'all' ? buildingId : selectedArea?.buildings[0]?.id ?? '')
-    const selectedBuilding = selectedArea?.buildings.find((building) => building.id === selectedBuildingId)
-
-    setCreateTarget(target)
-    setForm({
-      name: '', code: '', address: '', cityId: selectedCityId, areaId: selectedAreaId,
-      buildingId: selectedBuildingId, floorId: target.floorId ?? selectedBuilding?.floors[0]?.id ?? '',
-      floorNumber: '', unitNumber: '', capacity: '2',
-    })
-  }
-
-  function submitCreate(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!createTarget) return
-
-    const id = crypto.randomUUID()
-    const kind = createTarget.kind
-    const missingName = kind !== 'unit' && (!form.name.trim() || !form.code.trim())
-    const missingParent = (kind === 'area' && !form.cityId)
-      || (kind === 'building' && !form.areaId)
-      || (kind === 'floor' && !form.buildingId)
-      || (kind === 'unit' && !form.floorId)
-    if (missingName || missingParent || (kind === 'unit' && (!form.unitNumber.trim() || !form.name.trim()))) {
-      announce('Vui lòng điền đủ thông tin bắt buộc.')
-      return
+  async function openContract(unit?: PropertyUnitRecord) {
+    setSelectedUnit(unit ?? units[0]?.unit ?? null)
+    setContractOpen(true)
+    if (!hosts.length) {
+      try {
+        const page = await fetchUserDirectory(graphqlUrl, accessToken, { accountType: 'HOST', first: 100 })
+        setHosts(page.nodes)
+      } catch (error) { setMessage(error instanceof Error ? error.message : 'Không tải được chủ nhà') }
     }
-
-    setCatalog((current) => {
-      if (kind === 'city') return [...current, { id, code: form.code.trim(), name: form.name.trim(), areas: [] }]
-      return current.map((city) => {
-        if (kind === 'area' && city.id === form.cityId) {
-          return { ...city, areas: [...city.areas, { id, code: form.code.trim(), name: form.name.trim(), buildings: [] }] }
-        }
-        return { ...city, areas: city.areas.map((area) => {
-          if (kind === 'building' && area.id === form.areaId) {
-            return { ...area, buildings: [...area.buildings, { id, code: form.code.trim(), name: form.name.trim(), address: form.address.trim(), floors: [] }] }
-          }
-          return { ...area, buildings: area.buildings.map((building) => {
-            if (kind === 'floor' && building.id === form.buildingId) {
-              return { ...building, floors: [...building.floors, {
-                id, code: form.code.trim(), name: form.name.trim(), floorNumber: Number(form.floorNumber) || 0, properties: [],
-              }] }
-            }
-            return { ...building, floors: building.floors.map((floor) => {
-              if (kind !== 'unit' || floor.id !== form.floorId) return floor
-              return { ...floor, properties: [...floor.properties, {
-                id, unitNumber: form.unitNumber.trim(), name: form.name.trim(),
-                capacity: Math.max(1, Number(form.capacity) || 1), status: 'Cần bổ sung' as const,
-                hasAccessCredential: false,
-              }] }
-            }) }
-          }) }
-        }) }
-      })
-    })
-    setCreateTarget(null)
-    announce(`Đã thêm ${createLabels[kind]}.`)
   }
-
-  const formAreas = catalog.find((city) => city.id === form.cityId)?.areas ?? []
-  const formBuildings = formAreas.find((area) => area.id === form.areaId)?.buildings ?? []
-  const formFloors = formBuildings.find((building) => building.id === form.buildingId)?.floors ?? []
 
   return (
-    <section ref={root} className="property-management" aria-labelledby="property-management-title">
-      <header className="property-catalog-intro">
-        <span className="property-catalog-icon"><Stack weight="duotone" /></span>
-        <div><h2 id="property-management-title">Danh mục căn</h2><p>Thành phố · khu vực · tòa nhà · tầng · căn</p></div>
-      </header>
-
-      <section className="property-hierarchy" aria-label="Bộ lọc cấu trúc căn hộ">
-        <div className="property-filter-grid">
-          <div className="hierarchy-select">
-            <MapPin /><label htmlFor="property-city">Thành phố</label>
-            <select id="property-city" value={cityId} onChange={(event) => changeCity(event.target.value)}>
-              <option value="all">Tất cả thành phố</option>
-              {catalog.map((city) => <option value={city.id} key={city.id}>{city.name}</option>)}
-            </select>
-          </div>
-          <div className="hierarchy-select">
-            <MapPin /><label htmlFor="property-area">Khu vực</label>
-            <select id="property-area" value={areaId} onChange={(event) => changeArea(event.target.value)}>
-              <option value="all">Tất cả khu vực</option>
-              {availableAreas.map((area) => <option value={area.id} key={area.id}>{area.name} · {area.code}</option>)}
-            </select>
-          </div>
-          <div className="hierarchy-select">
-            <Buildings /><label htmlFor="property-building">Tòa nhà</label>
-            <select id="property-building" value={buildingId} onChange={(event) => setBuildingId(event.target.value)}>
-              <option value="all">Tất cả tòa nhà</option>
-              {availableBuildings.map((building) => <option value={building.id} key={building.id}>{building.name}</option>)}
-            </select>
-          </div>
+    <section ref={root} className="property-management property-operations" aria-label="Quản lý căn hộ">
+      <div className={`property-command-row${isContractSection ? ' contract-mode' : ''}`}>
+        {!isContractSection && <div className="property-compact-metrics" aria-label="Tóm tắt danh mục">
+          <div><span>Tòa nhà</span><strong>{buildingCount}</strong></div>
+          <div><span>Căn</span><strong>{units.length}</strong></div>
+          <div><span>Hoạt động</span><strong>{units.filter(({ unit }) => unit.operationalStatus === 'ACTIVE').length}</strong></div>
+        </div>}
+        {!isContractSection && <div className="property-location-filters" aria-label="Lọc vị trí">
+          <label><span>Thành phố</span><select value={cityFilter} onChange={(event) => { setCityFilter(event.target.value); setAreaFilter('ALL'); setBuildingFilter('ALL') }}><option value="ALL">Tất cả</option>{portfolio.cities.map((city) => <option key={city.id} value={city.id}>{city.name}</option>)}</select></label>
+          <label><span>Khu vực</span><select value={areaFilter} onChange={(event) => { setAreaFilter(event.target.value); setBuildingFilter('ALL') }}><option value="ALL">Tất cả</option>{areaOptions.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}</select></label>
+          <label><span>Tòa</span><select value={buildingFilter} onChange={(event) => setBuildingFilter(event.target.value)}><option value="ALL">Tất cả</option>{buildingOptions.map((building) => <option key={building.id} value={building.id}>{building.name}</option>)}</select></label>
+        </div>}
+        <label className="property-search-control"><MagnifyingGlass /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={section === 'contracts' ? 'Tìm hợp đồng, chủ nhà hoặc căn' : 'Tìm thành phố, tòa, tầng hoặc căn'} /></label>
+        {!isContractSection && <div className="property-view-control" role="group" aria-label="Kiểu hiển thị">
+          <button className={view === 'structure' ? 'active' : ''} onClick={() => setView('structure')} title="Cấu trúc"><SquaresFour /></button>
+          <button className={view === 'list' ? 'active' : ''} onClick={() => setView('list')} title="Danh sách"><ListBullets /></button>
+          <button className={view === 'density' ? 'active' : ''} onClick={() => setView('density')} title="Mật độ"><GridNine /></button>
+        </div>}
+        <div className="property-command-actions">
+          {!isContractSection && canCreateProperty && <div className="property-create-control">
+            <button type="button" aria-expanded={createMenuOpen} onClick={() => setCreateMenuOpen((current) => !current)}><Plus />Thêm mới</button>
+            {createMenuOpen && <div className="property-create-menu" role="menu">
+              {([
+                ['city', 'Thành phố'], ['area', 'Khu vực'], ['building', 'Tòa nhà'], ['floor', 'Tầng'], ['unit', 'Căn hộ'],
+              ] as Array<[CreateKind, string]>).map(([kind, label]) => <button type="button" role="menuitem" key={kind} onClick={() => { setCreateTarget({ kind }); setCreateMenuOpen(false) }}>{label}</button>)}
+            </div>}
+          </div>}
+          {isContractSection && canCreateContract && <button onClick={() => void openContract()}><Plus />Tạo hợp đồng</button>}
         </div>
+      </div>
 
-        <div className="property-filter-summary" aria-label="Số lượng đang hiển thị">
-          <span><strong>{visibleBuildings.length}</strong> tòa</span>
-          <span><strong>{visibleFloors.length}</strong> tầng</span>
-          <span><strong>{visibleUnits.length}</strong> căn</span>
+      {message && <p className="property-inline-message" role="status">{message}</p>}
+      {isContractSection && contractMessage && <p className="property-inline-message" role="alert">{contractMessage}</p>}
+
+      {!isContractSection ? <>
+        <div className="property-results">
+          {loading ? <div className="property-state"><SpinnerGap className="spinner" /><strong>Đang tải danh mục</strong></div>
+            : view === 'structure' ? <StructureView hierarchy={hierarchy} activeFloors={activeFloors} setActiveFloors={setActiveFloors} canCreate={canCreateProperty} onCreate={(kind, parentId) => setCreateTarget({ kind, parentId })} onContract={openContract} />
+              : view === 'list' ? <ListView units={units} onContract={openContract} />
+                : <DensityView units={units} />}
+          {!loading && units.length === 0 && <div className="property-state"><HouseLine /><strong>Chưa có căn phù hợp</strong><span>Đổi bộ lọc hoặc tạo căn đầu tiên trong khu vực này.</span></div>}
         </div>
+      </> : <ContractView contracts={contracts} units={units} search={search} onCreate={() => void openContract()} canCreate={canCreateContract} />}
 
-        <div className="property-view-switcher" role="tablist" aria-label="Cách hiển thị kết quả">
-          <button type="button" role="tab" className={view === 'structure' ? 'active' : ''} aria-selected={view === 'structure'} aria-label="Hiển thị theo cấu trúc" title="Cấu trúc" onClick={() => setView('structure')}><SquaresFour weight="bold" /></button>
-          <button type="button" role="tab" className={view === 'list' ? 'active' : ''} aria-selected={view === 'list'} aria-label="Hiển thị dạng danh sách" title="Danh sách" onClick={() => setView('list')}><ListBullets weight="bold" /></button>
-          <button type="button" role="tab" className={view === 'density' ? 'active' : ''} aria-selected={view === 'density'} aria-label="Hiển thị tổng quan nhiều căn" title="Tổng quan mật độ" onClick={() => setView('density')}><GridNine weight="bold" /></button>
-        </div>
-
-        <div className="property-filter-actions" aria-label="Thêm cấu trúc">
-          <button className="hierarchy-add" type="button" onClick={() => openCreate({ kind: 'city' })}><Plus /> Thành phố</button>
-          <button className="hierarchy-add" type="button" onClick={() => openCreate({ kind: 'area' })}><Plus /> Khu vực</button>
-          <button className="hierarchy-add primary" type="button" onClick={() => openCreate({ kind: 'building' })}><Plus /> Tòa nhà</button>
-        </div>
-      </section>
-
-      {view === 'structure' ? (
-        <div className="property-tree">
-          {visibleCities.map((city) => {
-            const cityBuildings = city.areas.flatMap((area) => area.buildings)
-            const cityUnits = cityBuildings.flatMap((building) => building.floors.flatMap((floor) => floor.properties))
-            return <section className="property-city-group" key={city.id}>
-              <header className="property-city-band">
-                <div><MapPin weight="fill" /><h3>{city.name}</h3></div>
-                <small>{city.areas.length} khu vực · {cityBuildings.length} tòa · {cityUnits.length} căn</small>
-              </header>
-              {city.areas.map((area) => <section className="property-area-group" key={area.id}>
-                <header className="property-area-band">
-                  <div><span aria-hidden="true" /><h4>{area.name}</h4></div>
-                  <small>{area.buildings.length} tòa nhà</small>
-                </header>
-                <div className="building-list">
-                  {area.buildings.map((building) => {
-                    const selectedFloorId = activeFloors[building.id] ?? building.floors[0]?.id ?? ''
-                    const selectedFloor = building.floors.find((floor) => floor.id === selectedFloorId) ?? building.floors[0]
-                    return <article className="building-board" key={building.id}>
-                      <div className="building-board-header">
-                        <div className="building-title"><span className="building-icon"><Buildings weight="duotone" /></span><div><p>{building.code} · {building.address}</p><h3>{building.name}</h3></div></div>
-                        <button className="building-edit" type="button" onClick={() => announce(`Đang chỉnh sửa ${building.name}`)}><PencilSimple /> Sửa tòa</button>
-                      </div>
-
-                      <div className="floor-bar">
-                        <div className="floor-tabs" role="tablist" aria-label={`Tầng của ${building.name}`}>
-                          {building.floors.map((floor) => <button className={selectedFloor?.id === floor.id ? 'active' : ''} key={floor.id} type="button" role="tab" aria-selected={selectedFloor?.id === floor.id} onClick={() => setActiveFloors((current) => ({ ...current, [building.id]: floor.id }))}>{floor.name}<small>{floor.properties.length} căn</small></button>)}
-                        </div>
-                        <button className="building-add-floor" type="button" onClick={() => openCreate({ kind: 'floor', cityId: city.id, areaId: area.id, buildingId: building.id })}><Plus /> Thêm tầng</button>
-                      </div>
-
-                      <div className="unit-grid">
-                        <button className="add-unit-card" type="button" onClick={() => openCreate({ kind: 'unit', cityId: city.id, areaId: area.id, buildingId: building.id, floorId: selectedFloor?.id })}><span><Plus /></span><strong>Thêm căn</strong><small>{selectedFloor?.name ?? 'Chọn tầng'}</small></button>
-                        {selectedFloor?.properties.map((unit) => <button className="unit-card" type="button" key={unit.id} onClick={() => announce(`Đã chọn căn ${unit.unitNumber}`)}><div className="unit-card-top"><span className={`unit-state-dot ${statusClass[unit.status]}`} title={unit.status} /><DoorOpen /></div><strong>{unit.unitNumber}</strong><span>{unit.name}</span><div className="unit-card-meta"><small>{unit.capacity} khách</small><small className={unit.hasAccessCredential ? 'credential-ready' : 'credential-missing'} title={unit.hasAccessCredential ? 'Đã cấu hình truy cập' : 'Thiếu thông tin truy cập'}><Key /></small></div></button>)}
-                      </div>
-                    </article>
-                  })}
-                </div>
-              </section>)}
-            </section>
-          })}
-          {!visibleCities.length && <div className="building-empty">Không có cấu trúc phù hợp với bộ lọc.</div>}
-        </div>
-      ) : view === 'list' ? (
-        <section className="property-unit-directory" aria-label="Danh sách căn">
-          <header><div><span>Danh sách căn</span><strong>{visibleUnits.length} căn đang hiển thị</strong></div><small>{visibleUnits.filter(({ unit }) => unit.hasAccessCredential).length}/{visibleUnits.length} căn đã cấu hình truy cập</small></header>
-          <div className="property-unit-table-head" aria-hidden="true"><span>Căn</span><span>Vị trí</span><span>Sức chứa</span><span>Trạng thái</span><span>Truy cập</span></div>
-          <div className="property-unit-rows">
-            {visibleUnits.map(({ city, area, building, floor, unit }) => <button className="property-unit-row" type="button" key={unit.id} onClick={() => announce(`Đã chọn căn ${unit.unitNumber}`)}>
-              <span><strong>{unit.unitNumber}</strong><small>{unit.name}</small></span>
-              <span><strong>{building.name} · {floor.name}</strong><small>{city.name} · {area.name}</small></span>
-              <span><strong>{unit.capacity} khách</strong><small>{floor.code}</small></span>
-              <span className={`unit-status ${statusClass[unit.status]}`}>{unit.status}</span>
-              <span className={unit.hasAccessCredential ? 'credential-ready' : 'credential-missing'}><Key />{unit.hasAccessCredential ? 'Đã cấu hình' : 'Chưa cấu hình'}</span>
-            </button>)}
-            {!visibleUnits.length && <div className="building-empty">Không có căn phù hợp với bộ lọc.</div>}
-          </div>
-        </section>
-      ) : (
-        <section className="property-density-view" aria-label="Tổng quan mật độ căn">
-          <header className="property-density-heading">
-            <div><span>Tổng quan căn</span><strong>{visibleUnits.length} căn trong {visibleBuildings.length} tòa</strong></div>
-            <div className="property-density-legend" aria-label="Chú giải trạng thái">
-              <span><i className="active" />Đang hoạt động</span>
-              <span><i className="maintenance" />Bảo trì</span>
-              <span><i className="missing" />Cần bổ sung</span>
-            </div>
-          </header>
-          <div className="density-building-list">
-            {visibleCities.flatMap((city) => city.areas.flatMap((area) => area.buildings.map((building) => {
-              const buildingUnits = building.floors.flatMap((floor) => floor.properties)
-              return <article className="density-building" key={building.id}>
-                <header>
-                  <div><Buildings weight="duotone" /><span><strong>{building.name}</strong><small>{city.name} · {area.name}</small></span></div>
-                  <small>{building.floors.length} tầng · {buildingUnits.length} căn</small>
-                </header>
-                <div className="density-floor-list">
-                  {building.floors.map((floor) => <section className="density-floor" key={floor.id}>
-                    <header><strong>{floor.name}</strong><small>{floor.properties.length} căn</small></header>
-                    <div className="density-unit-grid">
-                      {floor.properties.map((unit) => <button className={`density-unit ${statusClass[unit.status]}`} type="button" key={unit.id} aria-label={`${unit.unitNumber}, ${unit.name}, ${unit.status}`} title={`${unit.unitNumber} · ${unit.name} · ${unit.status}`} onClick={() => announce(`Đã chọn căn ${unit.unitNumber}`)}><span>{unit.unitNumber}</span>{!unit.hasAccessCredential && <Key weight="fill" />}</button>)}
-                      <button className="density-add-unit" type="button" aria-label={`Thêm căn vào ${floor.name}`} title={`Thêm căn vào ${floor.name}`} onClick={() => openCreate({ kind: 'unit', cityId: city.id, areaId: area.id, buildingId: building.id, floorId: floor.id })}><Plus weight="bold" /></button>
-                    </div>
-                  </section>)}
-                </div>
-              </article>
-            })))}
-            {!visibleUnits.length && <div className="building-empty">Không có căn phù hợp với bộ lọc.</div>}
-          </div>
-        </section>
-      )}
-
-      {createTarget && <div className="property-form-backdrop" role="presentation">
-        <section className="property-form-dialog" role="dialog" aria-modal="true" aria-labelledby="property-form-title">
-          <header><div><span>Thêm mới</span><h3 id="property-form-title">{createLabels[createTarget.kind]}</h3></div><button type="button" aria-label="Đóng" onClick={() => setCreateTarget(null)}><X /></button></header>
-          <form onSubmit={submitCreate}>
-            {createTarget.kind !== 'city' && <label>Thành phố<select value={form.cityId} required onChange={(event) => setForm((current) => ({ ...current, cityId: event.target.value, areaId: '', buildingId: '', floorId: '' }))}><option value="">Chọn thành phố</option>{catalog.map((city) => <option value={city.id} key={city.id}>{city.name}</option>)}</select></label>}
-            {['building', 'floor', 'unit'].includes(createTarget.kind) && <label>Khu vực<select value={form.areaId} required onChange={(event) => setForm((current) => ({ ...current, areaId: event.target.value, buildingId: '', floorId: '' }))}><option value="">Chọn khu vực</option>{formAreas.map((area) => <option value={area.id} key={area.id}>{area.name}</option>)}</select></label>}
-            {['floor', 'unit'].includes(createTarget.kind) && <label>Tòa nhà<select value={form.buildingId} required onChange={(event) => setForm((current) => ({ ...current, buildingId: event.target.value, floorId: '' }))}><option value="">Chọn tòa nhà</option>{formBuildings.map((building) => <option value={building.id} key={building.id}>{building.name}</option>)}</select></label>}
-            {createTarget.kind === 'unit' && <label>Tầng<select value={form.floorId} required onChange={(event) => setForm((current) => ({ ...current, floorId: event.target.value }))}><option value="">Chọn tầng</option>{formFloors.map((floor) => <option value={floor.id} key={floor.id}>{floor.name}</option>)}</select></label>}
-            <div className="property-form-fields">
-              {createTarget.kind === 'unit' ? <label>Số căn<input autoFocus required value={form.unitNumber} onChange={(event) => setForm((current) => ({ ...current, unitNumber: event.target.value }))} placeholder="A-101" /></label> : <label>Mã<input autoFocus required value={form.code} onChange={(event) => setForm((current) => ({ ...current, code: event.target.value }))} placeholder="Mã ngắn gọn" /></label>}
-              <label>Tên<input required value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} placeholder={`Tên ${createLabels[createTarget.kind]}`} /></label>
-              {createTarget.kind === 'building' && <label className="wide">Địa chỉ<input required value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} placeholder="Số nhà, đường" /></label>}
-              {createTarget.kind === 'floor' && <label>Số tầng<input type="number" value={form.floorNumber} onChange={(event) => setForm((current) => ({ ...current, floorNumber: event.target.value }))} placeholder="1" /></label>}
-              {createTarget.kind === 'unit' && <label>Sức chứa<input type="number" min="1" required value={form.capacity} onChange={(event) => setForm((current) => ({ ...current, capacity: event.target.value }))} /></label>}
-            </div>
-            <footer><button type="button" onClick={() => setCreateTarget(null)}>Hủy</button><button className="primary" type="submit"><Plus /> Thêm {createLabels[createTarget.kind]}</button></footer>
-          </form>
-        </section>
-      </div>}
-
-      {notice && <div className="property-management-toast" role="status">{notice}</div>}
+      {createTarget && <StructureDialog kind={createTarget.kind} initialParentId={createTarget.parentId} portfolio={portfolio} graphqlUrl={graphqlUrl} accessToken={accessToken}
+        onClose={() => setCreateTarget(null)} onSaved={() => { setCreateTarget(null); void load() }} setBusy={setBusy} busy={busy} setMessage={setMessage} />}
+      {contractOpen && <ContractDialog graphqlUrl={graphqlUrl} accessToken={accessToken} units={units.map(({ unit }) => unit)} hosts={hosts}
+        selectedUnit={selectedUnit} canCreateHost={canCreateHost} busy={busy} setBusy={setBusy} setHosts={setHosts}
+        onClose={() => setContractOpen(false)} setMessage={setMessage} onSaved={() => { setContractOpen(false); void load() }} />}
     </section>
   )
 }
+
+function StructureView({ hierarchy, activeFloors, setActiveFloors, canCreate, onCreate, onContract }: {
+  hierarchy: PropertyPortfolio['cities']; activeFloors: Record<string, string>
+  setActiveFloors: React.Dispatch<React.SetStateAction<Record<string, string>>>
+  canCreate: boolean; onCreate: (kind: CreateKind, parentId?: string) => void; onContract: (unit: PropertyUnitRecord) => Promise<void>
+}) {
+  return <div className="property-tree-refined">{hierarchy.map((city) => <section className="property-result-item property-city-section" key={city.id}>
+    <header><div><MapPin weight="fill" /><strong>{city.name}</strong><small>{city.code}</small></div><span>{city.areas.length} khu vực</span></header>
+    {city.areas.map((area) => <div className="property-area-section" key={area.id}>
+      <div className="property-area-title"><strong>{area.name}</strong><span>{area.buildings.length} tòa</span></div>
+      <div className="property-building-grid">{area.buildings.map((building) => {
+        const activeId = activeFloors[building.id] ?? building.floors[0]?.id
+        const floor = building.floors.find((item) => item.id === activeId) ?? building.floors[0]
+        return <article className="property-building-card" key={building.id}>
+          <header><div><Buildings /><span><strong>{building.name}</strong><small>{building.code} · {building.address}</small></span></div>{canCreate && <button onClick={() => onCreate('floor', building.id)}><Plus />Tầng</button>}</header>
+          <div className="property-floor-tabs">{building.floors.map((item) => <button className={item.id === floor?.id ? 'active' : ''} key={item.id} onClick={() => setActiveFloors((current) => ({ ...current, [building.id]: item.id }))}>{item.name}<small>{item.units.length}</small></button>)}</div>
+          <div className="property-unit-grid">{floor?.units.map((unit) => <article className="property-unit-tile" key={unit.id}>
+            <div><span className={`property-status-dot ${unit.operationalStatus.toLowerCase()}`} /><DoorOpen /></div>
+            <strong>{unit.unitNumber || unit.code}</strong><span>{unit.name}</span>
+            <footer><small>{unit.capacity} khách · {modelCopy[unit.operatingModel].short}</small><button onClick={() => void onContract(unit)} title="Tạo hợp đồng"><FileText /></button></footer>
+          </article>)}</div>
+        </article>
+      })}</div>
+    </div>)}
+  </section>)}</div>
+}
+
+function ListView({ units, onContract }: { units: ReturnType<typeof unitRows>; onContract: (unit: PropertyUnitRecord) => Promise<void> }) {
+  return <div className="property-list-view"><div className="property-list-head"><span>Căn</span><span>Vị trí</span><span>Vận hành</span><span>Sức chứa</span><span>Trạng thái</span><span /></div>
+    {units.map(({ city, area, building, floor, unit }) => <article className="property-result-item property-list-row" key={unit.id}>
+      <span><strong>{unit.unitNumber || unit.code}</strong><small>{unit.name}</small></span>
+      <span><strong>{building.name}</strong><small>{city.name} · {area.name} · {floor.name}</small></span>
+      <span><i>{modelCopy[unit.operatingModel].label}</i></span><span>{unit.capacity} khách</span>
+      <span><i className={`status ${unit.operationalStatus.toLowerCase()}`}>{statusCopy[unit.operationalStatus] ?? unit.operationalStatus}</i></span>
+      <button onClick={() => void onContract(unit)}><FileText />Hợp đồng</button>
+    </article>)}</div>
+}
+
+function DensityView({ units }: { units: ReturnType<typeof unitRows> }) {
+  return <div className="property-density-view">{units.map(({ building, floor, unit }) => <article className={`property-result-item property-density-unit ${unit.operationalStatus.toLowerCase()}`} key={unit.id} title={`${building.name} · ${floor.name} · ${unit.name}`}><strong>{unit.unitNumber || unit.code}</strong><small>{modelCopy[unit.operatingModel].short}</small></article>)}</div>
+}
+
+function ContractView({ contracts, units, search, onCreate, canCreate }: { contracts: OwnerContractRecord[]; units: ReturnType<typeof unitRows>; search: string; onCreate: () => void; canCreate: boolean }) {
+  const query = search.trim().toLocaleLowerCase('vi')
+  const names = new Map(units.map(({ unit }) => [unit.id, unit.name]))
+  const visible = contracts.filter((contract) => !query || `${contract.contractNumber} ${contract.status} ${contract.parties.map((party) => party.hostProfileId).join(' ')} ${contract.propertyTerms.map((term) => names.get(term.propertyId) ?? term.propertyId).join(' ')}`.toLocaleLowerCase('vi').includes(query))
+  return <div className="contract-workspace">
+    <div className="contract-summary"><div><span>Tổng hợp đồng</span><strong>{contracts.length}</strong></div><div><span>Đang hiệu lực</span><strong>{contracts.filter((item) => item.status === 'ACTIVE').length}</strong></div><div><span>Sắp hết hạn</span><strong>{contracts.filter((item) => item.status === 'EXPIRING').length}</strong></div></div>
+    <div className="contract-list"><div className="contract-list-head"><span>Hợp đồng</span><span>Căn & mô hình</span><span>Chủ nhà</span><span>Thời hạn</span><span>Trạng thái</span></div>
+      {visible.map((contract) => <article className="property-result-item contract-row" key={contract.id}>
+        <span><strong>{contract.contractNumber}</strong><small>v{contract.version}</small></span>
+        <span><strong>{names.get(contract.propertyTerms[0]?.propertyId) ?? contract.propertyTerms[0]?.propertyId}</strong><small>{contract.propertyTerms[0] ? modelCopy[contract.propertyTerms[0].operatingModel].label : '—'}</small></span>
+        <span><strong>{contract.parties[0]?.hostProfileId ?? '—'}</strong><small>{contract.parties[0]?.partyRole ?? ''}</small></span>
+        <span><strong>{contract.startDate}</strong><small>đến {contract.endDate}</small></span><span><i className={`contract-status ${contract.status.toLowerCase()}`}>{contract.status}</i></span>
+      </article>)}
+      {!visible.length && <div className="property-state"><FileText /><strong>Chưa có hợp đồng phù hợp</strong>{canCreate && <button onClick={onCreate}><Plus />Tạo hợp đồng</button>}</div>}
+    </div>
+  </div>
+}
+
+function StructureDialog({ kind, initialParentId, portfolio, graphqlUrl, accessToken, onClose, onSaved, busy, setBusy, setMessage }: {
+  kind: CreateKind; initialParentId?: string; portfolio: PropertyPortfolio; graphqlUrl: string; accessToken: string; onClose: () => void; onSaved: () => void
+  busy: boolean; setBusy: (value: boolean) => void; setMessage: (value: string) => void
+}) {
+  const areas = portfolio.cities.flatMap((city) => city.areas)
+  const buildings = areas.flatMap((area) => area.buildings)
+  const floors = buildings.flatMap((building) => building.floors)
+  const [form, setForm] = useState({ code: '', name: '', address: '', cityId: kind === 'area' && initialParentId ? initialParentId : portfolio.cities[0]?.id ?? '', areaId: kind === 'building' && initialParentId ? initialParentId : areas[0]?.id ?? '', buildingId: kind === 'floor' && initialParentId ? initialParentId : buildings[0]?.id ?? '', floorId: kind === 'unit' && initialParentId ? initialParentId : floors[0]?.id ?? '', branchId: portfolio.branches[0]?.id ?? '', floorNumber: '', unitNumber: '', operatingModel: 'MANAGEMENT' as PropertyOperatingModel, areaSqm: '', bedrooms: '1', bathrooms: '1', capacity: '2', price: '' })
+  async function submit(event: FormEvent) {
+    event.preventDefault(); setBusy(true)
+    try {
+      if (kind === 'unit') await createPropertyUnit(graphqlUrl, accessToken, { floorId: form.floorId, branchId: form.branchId, code: form.code, unitNumber: form.unitNumber, name: form.name, operatingModel: form.operatingModel, areaSqm: form.areaSqm || undefined, bedroomCount: Number(form.bedrooms), bathroomCount: Number(form.bathrooms), capacity: Number(form.capacity), basePricePerNight: form.price || undefined, currency: 'VND' })
+      else await createPropertyStructure(graphqlUrl, accessToken, kind, kind === 'city' ? { code: form.code, name: form.name } : kind === 'area' ? { cityId: form.cityId, code: form.code, name: form.name } : kind === 'building' ? { areaId: form.areaId, code: form.code, name: form.name, address: form.address } : { buildingId: form.buildingId, code: form.code, name: form.name, floorNumber: form.floorNumber ? Number(form.floorNumber) : null })
+      setMessage('Đã lưu cấu trúc căn hộ.'); onSaved()
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Không thể lưu cấu trúc') }
+    finally { setBusy(false) }
+  }
+  return <div className="dialog-backdrop property-dialog-backdrop"><form className="property-dialog" onSubmit={submit}>
+    <header><div><strong>{kind === 'unit' ? 'Thêm căn hộ' : `Thêm ${kind === 'floor' ? 'tầng' : kind === 'building' ? 'tòa nhà' : kind === 'area' ? 'khu vực' : 'thành phố'}`}</strong><span>Thông tin được lưu trực tiếp vào danh mục vận hành.</span></div><button type="button" onClick={onClose}><X /></button></header>
+    <div className="property-dialog-body">
+      {kind === 'area' && <Field label="Thành phố"><select value={form.cityId} onChange={(e) => setForm({ ...form, cityId: e.target.value })}>{portfolio.cities.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>}
+      {kind === 'building' && <Field label="Khu vực"><select value={form.areaId} onChange={(e) => setForm({ ...form, areaId: e.target.value })}>{areas.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>}
+      {kind === 'floor' && <Field label="Tòa nhà"><select value={form.buildingId} onChange={(e) => setForm({ ...form, buildingId: e.target.value })}>{buildings.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>}
+      {kind === 'unit' && <><Field label="Tầng"><select value={form.floorId} onChange={(e) => setForm({ ...form, floorId: e.target.value })}>{floors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field><Field label="Chi nhánh"><select value={form.branchId} onChange={(e) => setForm({ ...form, branchId: e.target.value })}>{portfolio.branches.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field></>}
+      <Field label="Mã *"><input required value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} /></Field><Field label="Tên *"><input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
+      {kind === 'building' && <Field label="Địa chỉ *" wide><input required value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></Field>}
+      {kind === 'floor' && <Field label="Số tầng"><input type="number" value={form.floorNumber} onChange={(e) => setForm({ ...form, floorNumber: e.target.value })} /></Field>}
+      {kind === 'unit' && <><Field label="Số căn"><input value={form.unitNumber} onChange={(e) => setForm({ ...form, unitNumber: e.target.value })} /></Field><Field label="Mô hình"><select value={form.operatingModel} onChange={(e) => setForm({ ...form, operatingModel: e.target.value as PropertyOperatingModel })}>{Object.entries(modelCopy).map(([value, copy]) => <option key={value} value={value}>{copy.label}</option>)}</select></Field><Field label="Diện tích (m²)"><input type="number" value={form.areaSqm} onChange={(e) => setForm({ ...form, areaSqm: e.target.value })} /></Field><Field label="Sức chứa"><input type="number" min="1" value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} /></Field><Field label="Phòng ngủ"><input type="number" min="0" value={form.bedrooms} onChange={(e) => setForm({ ...form, bedrooms: e.target.value })} /></Field><Field label="Phòng tắm"><input type="number" min="0" value={form.bathrooms} onChange={(e) => setForm({ ...form, bathrooms: e.target.value })} /></Field><Field label="Giá cơ sở"><input type="number" min="0" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} /></Field></>}
+    </div><footer><button type="button" onClick={onClose}>Hủy</button><button className="primary-button" disabled={busy}>{busy ? <SpinnerGap className="spinner" /> : null}Lưu</button></footer>
+  </form></div>
+}
+
+function ContractDialog({ graphqlUrl, accessToken, units, hosts, selectedUnit, canCreateHost, busy, setBusy, setHosts, onClose, onSaved, setMessage }: {
+  graphqlUrl: string; accessToken: string; units: PropertyUnitRecord[]; hosts: UserDirectoryEntry[]; selectedUnit: PropertyUnitRecord | null
+  canCreateHost: boolean; busy: boolean; setBusy: (value: boolean) => void; setHosts: React.Dispatch<React.SetStateAction<UserDirectoryEntry[]>>
+  onClose: () => void; onSaved: () => void; setMessage: (value: string) => void
+}) {
+  const [newHost, setNewHost] = useState(false)
+  const [hostForm, setHostForm] = useState({ name: '', email: '', phone: '' })
+  const [form, setForm] = useState({ number: CONTRACT_NUMBER, propertyId: selectedUnit?.id ?? units[0]?.id ?? '', hostId: hosts[0]?.profileId ?? '', model: selectedUnit?.operatingModel ?? 'MANAGEMENT' as PropertyOperatingModel, startDate: CONTRACT_TODAY, endDate: CONTRACT_NEXT_YEAR, fixedAmount: '', fee: '15', notes: '' })
+  async function createHostNow() {
+    setBusy(true)
+    try {
+      const host = await createUserProfile(graphqlUrl, accessToken, { accountType: 'HOST', fullName: hostForm.name, email: hostForm.email || undefined, contactPhone: hostForm.phone || undefined, reason: 'Tạo chủ nhà trong luồng lập hợp đồng', idempotencyKey: crypto.randomUUID() })
+      const entry: UserDirectoryEntry = {
+        profileId: host.profileId, accountId: host.accountId, accountType: 'HOST', displayName: host.displayName,
+        email: host.email, contactPhone: host.contactPhone, status: host.status, referenceCode: host.referenceCode,
+        subtype: host.subtype, verificationStatus: host.verificationStatus, joinedOn: host.relevantDate,
+        createdAt: host.createdAt, updatedAt: host.updatedAt,
+      }
+      setHosts((current) => [entry, ...current]); setForm((current) => ({ ...current, hostId: host.profileId })); setNewHost(false)
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Không tạo được chủ nhà') }
+    finally { setBusy(false) }
+  }
+  async function submit(event: FormEvent) {
+    event.preventDefault(); setBusy(true)
+    try {
+      await createOwnerContract(graphqlUrl, accessToken, { contractNumber: form.number, propertyId: form.propertyId, hostProfileId: form.hostId, operatingModel: form.model, startDate: form.startDate, endDate: form.endDate, fixedAmount: form.model === 'LEASED_BY_VISTAY' ? form.fixedAmount : undefined, managementFeePercent: form.model === 'MANAGEMENT' ? form.fee : undefined, paymentPeriod: 'MONTH', paymentCycleCount: 1, currency: 'VND', status: 'ACTIVE', notes: form.notes || undefined })
+      setMessage('Đã tạo hợp đồng và gắn chủ nhà với căn.'); onSaved()
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Không tạo được hợp đồng') }
+    finally { setBusy(false) }
+  }
+  return <div className="dialog-backdrop property-dialog-backdrop"><form className="property-dialog contract-dialog" onSubmit={submit}>
+    <header><div><strong>Tạo hợp đồng chủ nhà</strong><span>Hợp đồng xác lập chủ nhà và mô hình vận hành của căn.</span></div><button type="button" onClick={onClose}><X /></button></header>
+    <div className="property-dialog-body"><Field label="Số hợp đồng *"><input required value={form.number} onChange={(e) => setForm({ ...form, number: e.target.value.toUpperCase() })} /></Field><Field label="Căn *"><select value={form.propertyId} onChange={(e) => { const unit = units.find((item) => item.id === e.target.value); setForm({ ...form, propertyId: e.target.value, model: unit?.operatingModel ?? form.model }) }}>{units.map((unit) => <option key={unit.id} value={unit.id}>{unit.unitNumber || unit.code} · {unit.name}</option>)}</select></Field>
+      <Field label="Chủ nhà *" wide><div className="inline-select-action"><select required value={form.hostId} onChange={(e) => setForm({ ...form, hostId: e.target.value })}><option value="">Chọn chủ nhà</option>{hosts.map((host) => <option key={host.profileId} value={host.profileId}>{host.displayName} · {host.email || host.contactPhone || host.profileId}</option>)}</select>{canCreateHost && <button type="button" onClick={() => setNewHost((value) => !value)}><UserPlus />Tạo mới</button>}</div></Field>
+      {newHost && <div className="inline-host-form"><input placeholder="Họ tên" value={hostForm.name} onChange={(e) => setHostForm({ ...hostForm, name: e.target.value })} /><input placeholder="Email" value={hostForm.email} onChange={(e) => setHostForm({ ...hostForm, email: e.target.value })} /><input placeholder="Điện thoại" value={hostForm.phone} onChange={(e) => setHostForm({ ...hostForm, phone: e.target.value })} /><button type="button" disabled={busy || !hostForm.name || (!hostForm.email && !hostForm.phone)} onClick={() => void createHostNow()}>Tạo và chọn</button></div>}
+      <Field label="Mô hình"><select value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value as PropertyOperatingModel })}>{Object.entries(modelCopy).map(([value, copy]) => <option key={value} value={value}>{copy.label}</option>)}</select></Field><Field label="Hiệu lực từ"><input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} /></Field><Field label="Đến ngày"><input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} /></Field>
+      {form.model === 'LEASED_BY_VISTAY' && <Field label="Tiền thuê/tháng *"><input required type="number" min="0" value={form.fixedAmount} onChange={(e) => setForm({ ...form, fixedAmount: e.target.value })} /></Field>}{form.model === 'MANAGEMENT' && <Field label="Phí quản lý (%) *"><input required type="number" min="0" max="100" value={form.fee} onChange={(e) => setForm({ ...form, fee: e.target.value })} /></Field>}<Field label="Ghi chú" wide><textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
+    </div><footer><button type="button" onClick={onClose}>Hủy</button><button className="primary-button" disabled={busy || !form.propertyId || !form.hostId}>{busy ? <SpinnerGap className="spinner" /> : null}Tạo hợp đồng</button></footer>
+  </form></div>
+}
+
+function Field({ label, wide, children }: { label: string; wide?: boolean; children: React.ReactNode }) { return <label className={wide ? 'wide' : ''}><span>{label}</span>{children}</label> }
+function unitRows(cities: PropertyPortfolio['cities']) { return cities.flatMap((city) => city.areas.flatMap((area) => area.buildings.flatMap((building) => building.floors.flatMap((floor) => floor.units.map((unit) => ({ city, area, building, floor, unit })))))) }

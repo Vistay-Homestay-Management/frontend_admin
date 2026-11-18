@@ -28,7 +28,8 @@ import { PersonalProfileEditor } from './PersonalProfileEditor'
 import { AccountSecurityConsole } from './AccountSecurityConsole'
 import { IdentityAccountWorkspace, type IdentityAccountSection } from './IdentityAccountWorkspace'
 import { InventoryWorkspace, type InventorySection } from './InventoryWorkspace'
-import { PropertyManagement } from './PropertyManagement'
+import { BookingManagement } from './BookingManagement'
+import { PropertyManagement, type PropertySection } from './PropertyManagement'
 import { UserDirectoryWorkspace, type UserDirectorySection } from './UserDirectoryWorkspace'
 import { OverviewDashboard } from './OverviewDashboard'
 import { NotificationInbox } from './NotificationInbox'
@@ -142,6 +143,14 @@ const userSections: Array<{ value: UserDirectorySection; label: string }> = [
   { value: 'hosts', label: 'Chủ nhà' },
 ]
 
+const propertySections: Array<{ value: PropertySection; label: string }> = [
+  { value: 'portfolio', label: 'Danh mục' },
+  { value: 'owned', label: 'Sở hữu' },
+  { value: 'leased', label: 'Thuê vận hành' },
+  { value: 'management', label: 'Quản lý' },
+  { value: 'contracts', label: 'Hợp đồng' },
+]
+
 type IdentitySection = IdentityAccountSection | 'roles' | 'assignments'
 
 function pageFromHash(): AdminPage {
@@ -168,6 +177,7 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
   const [activePage, setActivePage] = useState<AdminPage>(pageFromHash)
   const [overviewSection, setOverviewSection] = useState<'system' | 'personal'>('system')
   const [bookingSection, setBookingSection] = useState<InventorySection>('map')
+  const [propertySection, setPropertySection] = useState<PropertySection>('portfolio')
   const [userSection, setUserSection] = useState<UserDirectorySection>('customers')
   const [identitySection, setIdentitySection] = useState<IdentitySection>(identitySectionFromHash)
   const [railExpanded, setRailExpanded] = useState(() => window.localStorage.getItem('vistay.admin.rail-expanded') === 'true')
@@ -278,7 +288,12 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
               </>
             )}
             {activePage === 'management' && (
-              <span className="topbar-context-current" aria-current="page">Căn hộ</span>
+              <>
+                <span className="topbar-context-current" aria-current="page">Căn hộ</span>
+                {propertySections.filter((item) => item.value !== 'contracts' || profile.viewer?.permissions.includes('contract:read')).map((item) => (
+                  <button type="button" role="tab" className={propertySection === item.value ? 'active' : ''} aria-selected={propertySection === item.value} key={item.value} onClick={() => setPropertySection(item.value)}>{item.label}</button>
+                ))}
+              </>
             )}
             {activePage === 'users' && (
               <>
@@ -352,10 +367,11 @@ function AuthenticatedApp({ config, accessToken }: AppProps & { accessToken: str
           <>
               {activePage === 'overview' && <OverviewDashboard graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} section={overviewSection} />}
             {activePage === 'analytics' && <AnalyticsDashboard graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} />}
-            {activePage === 'inventory' && (
-              <InventoryWorkspace graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} section={bookingSection} />
+            {activePage === 'inventory' && (bookingSection === 'map'
+              ? <InventoryWorkspace graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} section={bookingSection} />
+              : <BookingManagement graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} section={bookingSection} />
             )}
-            {activePage === 'management' && <PropertyManagement />}
+            {activePage === 'management' && <PropertyManagement graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} section={propertySection} />}
             {activePage === 'users' && <UserDirectoryWorkspace graphqlUrl={config.graphqlUrl} accessToken={accessToken} viewer={profile.viewer} section={userSection} />}
 
             {activePage === 'profile' && <><section className="signal-grid" aria-label="Trạng thái phiên làm việc">

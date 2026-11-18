@@ -85,10 +85,11 @@ function Choice({ active, disabled, label, onPress }: {
   )
 }
 
-export function AuthorizationWorkspace({ graphqlUrl, accessToken, viewer }: {
+export function AuthorizationWorkspace({ graphqlUrl, accessToken, viewer, mode = 'all' }: {
   graphqlUrl: string
   accessToken: string
   viewer: BackofficeViewer
+  mode?: 'all' | 'assignments'
 }) {
   const [accountType, setAccountType] = useState<AccountType>('ADMIN')
   const [accountId, setAccountId] = useState(viewer.accountId)
@@ -121,7 +122,7 @@ export function AuthorizationWorkspace({ graphqlUrl, accessToken, viewer }: {
   const canGrant = hasPermission(viewer, 'authorization:grant')
   const canApprove = hasPermission(viewer, 'authorization:approve')
   const canRevoke = hasPermission(viewer, 'authorization:revoke')
-  const canReadRoles = hasPermission(viewer, 'role:read')
+  const canReadRoles = mode !== 'assignments' && hasPermission(viewer, 'role:read')
   const canRequestRoles = hasPermission(viewer, 'role:change-request')
   const canApproveRoles = hasPermission(viewer, 'role:change-approve')
   const selectedRole = useMemo(

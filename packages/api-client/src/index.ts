@@ -288,6 +288,8 @@ export interface UserProfileDetails extends Omit<UserDirectoryEntry, 'joinedOn'>
   relevantDate: string | null
   address: string | null
   taxCode: string | null
+  nationalityCode: string | null
+  documentType: 'CCCD' | 'PASSPORT' | null
   version: number
 }
 
@@ -299,9 +301,12 @@ export type CreateUserProfileInput = {
   referenceCode?: string
   subtype?: string
   relevantDate?: string
+  nationalityCode?: string
+  documentType?: 'CCCD' | 'PASSPORT'
+  documentNumber?: string
   address?: string
   taxCode?: string
-  reason: string
+  reason?: string
   idempotencyKey: string
 }
 
@@ -1494,6 +1499,7 @@ const USER_PROFILE_QUERY = `
     userProfile(accountType: $accountType, profileId: $profileId) {
       profileId accountId accountType displayName email contactPhone status
       referenceCode subtype verificationStatus relevantDate address taxCode
+      nationalityCode documentType
       version createdAt updatedAt
     }
   }
@@ -1504,7 +1510,33 @@ const CREATE_CUSTOMER_PROFILE_MUTATION = `
     createCustomerProfile(input: $input) {
       profileId accountId accountType displayName email contactPhone status
       referenceCode subtype verificationStatus relevantDate address taxCode
+      nationalityCode documentType
       version createdAt updatedAt
+    }
+  }
+`
+
+const CUSTOMER_IDENTITY_DOCUMENT_AVAILABILITY_QUERY = `
+  query CustomerIdentityDocumentAvailability(
+    $nationalityCode: String!
+    $documentType: String!
+    $documentNumber: String!
+  ) {
+    customerIdentityDocumentAvailability(
+      nationalityCode: $nationalityCode
+      documentType: $documentType
+      documentNumber: $documentNumber
+    ) {
+      available
+    }
+  }
+`
+
+const CUSTOMER_CONTACT_AVAILABILITY_QUERY = `
+  query CustomerContactAvailability($email: String, $contactPhone: String) {
+    customerContactAvailability(email: $email, contactPhone: $contactPhone) {
+      emailAvailable
+      phoneAvailable
     }
   }
 `
@@ -1514,6 +1546,7 @@ const CREATE_ADMIN_PROFILE_MUTATION = `
     createAdminProfile(input: $input) {
       profileId accountId accountType displayName email contactPhone status
       referenceCode subtype verificationStatus relevantDate address taxCode
+      nationalityCode documentType
       version createdAt updatedAt
     }
   }
@@ -1524,6 +1557,7 @@ const CREATE_HOST_PROFILE_MUTATION = `
     createHostProfile(input: $input) {
       profileId accountId accountType displayName email contactPhone status
       referenceCode subtype verificationStatus relevantDate address taxCode
+      nationalityCode documentType
       version createdAt updatedAt
     }
   }
@@ -1544,6 +1578,58 @@ export async function fetchUserProfile(
   return data.userProfile
 }
 
+export async function checkCustomerIdentityDocumentAvailability(
+  graphqlUrl: string,
+  accessToken: string,
+  input: { nationalityCode: string; documentType: 'CCCD' | 'PASSPORT'; documentNumber: string },
+  signal?: AbortSignal,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<boolean> {
+  const data = await graphqlRequest<{
+    customerIdentityDocumentAvailability: { available: boolean }
+  }>(
+    graphqlUrl,
+    accessToken,
+    'CustomerIdentityDocumentAvailability',
+    CUSTOMER_IDENTITY_DOCUMENT_AVAILABILITY_QUERY,
+    {
+      nationalityCode: input.nationalityCode,
+      documentType: input.documentType,
+      documentNumber: input.documentNumber.trim(),
+    },
+    signal,
+    fetcher,
+  )
+  return data.customerIdentityDocumentAvailability.available
+}
+
+export async function checkCustomerContactAvailability(
+  graphqlUrl: string,
+  accessToken: string,
+  input: { email?: string; contactPhone?: string },
+  signal?: AbortSignal,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<{ emailAvailable: boolean | null; phoneAvailable: boolean | null }> {
+  const data = await graphqlRequest<{
+    customerContactAvailability: {
+      emailAvailable: boolean | null
+      phoneAvailable: boolean | null
+    }
+  }>(
+    graphqlUrl,
+    accessToken,
+    'CustomerContactAvailability',
+    CUSTOMER_CONTACT_AVAILABILITY_QUERY,
+    {
+      email: input.email?.trim() || null,
+      contactPhone: input.contactPhone?.trim() || null,
+    },
+    signal,
+    fetcher,
+  )
+  return data.customerContactAvailability
+}
+
 export async function createUserProfile(
   graphqlUrl: string,
   accessToken: string,
@@ -1554,13 +1640,16 @@ export async function createUserProfile(
     fullName: input.fullName.trim(),
     email: input.email?.trim() || null,
     contactPhone: input.contactPhone?.trim() || null,
-    reason: input.reason.trim(),
+    reason: input.reason?.trim() || null,
     idempotencyKey: input.idempotencyKey,
   }
   const operation = input.accountType === 'CUSTOMER'
     ? ['CreateCustomerProfile', CREATE_CUSTOMER_PROFILE_MUTATION, 'createCustomerProfile', {
         ...common,
         dateOfBirth: input.relevantDate || null,
+        nationalityCode: input.nationalityCode || 'VN',
+        documentType: input.documentType || 'CCCD',
+        documentNumber: input.documentNumber?.trim() || null,
         address: input.address?.trim() || null,
       }] as const
     : input.accountType === 'ADMIN'
@@ -2704,4 +2793,169 @@ export async function reviewBookingConfiguration(
   const query = `mutation ReviewBookingConfiguration($id: ID!, $reason: String!) { ${operation}(id: $id, reason: $reason) { id status } }`
   await graphqlRequest<Record<string, { id: string; status: string }>>(graphqlUrl, accessToken,
     'ReviewBookingConfiguration', query, { id, reason }, undefined, fetcher)
+}
+
+export type PropertyOperatingModel = 'OWNED' | 'LEASED_BY_VISTAY' | 'MANAGEMENT'
+export interface PropertyUnitRecord {
+  id: string; floorId: string; branchId?: string | null; code: string; unitNumber?: string | null; name: string
+  operatingModel: PropertyOperatingModel; operationalStatus: string; areaSqm?: string | null
+  bedroomCount: number; bathroomCount: number; capacity: number; basePricePerNight?: string | null
+  currency: string; hostProfileId?: string | null; version: string
+}
+export interface PropertyFloorRecord { id: string; buildingId: string; code: string; name: string; floorNumber?: number | null; units: PropertyUnitRecord[] }
+export interface PropertyBuildingRecord { id: string; areaId: string; code: string; name: string; address: string; floors: PropertyFloorRecord[] }
+export interface PropertyAreaRecord { id: string; cityId: string; code: string; name: string; buildings: PropertyBuildingRecord[] }
+export interface PropertyCityRecord { id: string; code: string; name: string; areas: PropertyAreaRecord[] }
+export interface PropertyPortfolio {
+  branches: Array<{ id: string; code: string; name: string }>
+  cities: PropertyCityRecord[]
+}
+export interface OwnerContractRecord {
+  id: string; contractNumber: string; startDate: string; endDate: string; status: string; notes?: string | null; version: string
+  parties: Array<{ hostProfileId: string; partyRole: string; ownershipPercent?: string | null; primary: boolean }>
+  propertyTerms: Array<{ propertyId: string; operatingModel: PropertyOperatingModel; effectiveFrom: string; effectiveTo: string
+    fixedAmount?: string | null; managementFeePercent?: string | null; paymentPeriod: string; paymentCycleCount: number; currency: string; status: string }>
+}
+
+const PROPERTY_PORTFOLIO_FIELDS = `
+  branches { id code name }
+  cities { id code name areas { id cityId code name buildings { id areaId code name address floors {
+    id buildingId code name floorNumber units { id floorId branchId code unitNumber name operatingModel operationalStatus
+      areaSqm bedroomCount bathroomCount capacity basePricePerNight currency hostProfileId version }
+  } } } }
+`
+
+export async function fetchPropertyPortfolio(
+  graphqlUrl: string, accessToken: string, input: { search?: string; operatingModel?: PropertyOperatingModel },
+  signal?: AbortSignal, fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<PropertyPortfolio> {
+  const query = `query PropertyPortfolio($search: String, $operatingModel: String) { propertyPortfolio(search: $search, operatingModel: $operatingModel) { ${PROPERTY_PORTFOLIO_FIELDS} } }`
+  const data = await graphqlRequest<{ propertyPortfolio: PropertyPortfolio }>(graphqlUrl, accessToken, 'PropertyPortfolio', query,
+    { search: input.search?.trim() || null, operatingModel: input.operatingModel || null }, signal, fetcher)
+  return data.propertyPortfolio
+}
+
+export async function fetchOwnerContracts(
+  graphqlUrl: string, accessToken: string, input: { propertyId?: string; status?: string },
+  signal?: AbortSignal, fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<OwnerContractRecord[]> {
+  const query = `query OwnerContracts($propertyId: ID, $status: String) { ownerContracts(propertyId: $propertyId, status: $status) {
+    id contractNumber startDate endDate status notes version
+    parties { hostProfileId partyRole ownershipPercent primary }
+    propertyTerms { propertyId operatingModel effectiveFrom effectiveTo fixedAmount managementFeePercent paymentPeriod paymentCycleCount currency status }
+  } }`
+  const data = await graphqlRequest<{ ownerContracts: OwnerContractRecord[] }>(graphqlUrl, accessToken, 'OwnerContracts', query,
+    { propertyId: input.propertyId || null, status: input.status || null }, signal, fetcher)
+  return data.ownerContracts
+}
+
+export async function createPropertyStructure(
+  graphqlUrl: string, accessToken: string, kind: 'city' | 'area' | 'building' | 'floor', input: Record<string, unknown>,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<void> {
+  const operations = {
+    city: ['CreateCity', 'createCity', 'CreateCityInput', 'id code name'],
+    area: ['CreateArea', 'createArea', 'CreateAreaInput', 'id cityId code name'],
+    building: ['CreateBuilding', 'createBuilding', 'CreateBuildingInput', 'id areaId code name address'],
+    floor: ['CreateBuildingFloor', 'createBuildingFloor', 'CreateBuildingFloorInput', 'id buildingId code name floorNumber'],
+  } as const
+  const [operation, field, type, fields] = operations[kind]
+  await graphqlRequest(graphqlUrl, accessToken, operation,
+    `mutation ${operation}($input: ${type}!) { ${field}(input: $input) { ${fields} } }`, { input }, undefined, fetcher)
+}
+
+export async function createPropertyUnit(
+  graphqlUrl: string, accessToken: string,
+  input: { floorId: string; branchId: string; code: string; unitNumber?: string; name: string; operatingModel: PropertyOperatingModel
+    areaSqm?: string; bedroomCount: number; bathroomCount: number; capacity: number; basePricePerNight?: string; currency: string },
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<PropertyUnitRecord> {
+  const query = `mutation CreatePropertyUnit($input: CreatePropertyUnitInput!) { createPropertyUnit(input: $input) {
+    id floorId branchId code unitNumber name operatingModel operationalStatus areaSqm bedroomCount bathroomCount capacity basePricePerNight currency hostProfileId version
+  } }`
+  const data = await graphqlRequest<{ createPropertyUnit: PropertyUnitRecord }>(graphqlUrl, accessToken, 'CreatePropertyUnit', query, { input }, undefined, fetcher)
+  return data.createPropertyUnit
+}
+
+export async function createOwnerContract(
+  graphqlUrl: string, accessToken: string,
+  input: { contractNumber: string; propertyId: string; hostProfileId: string; operatingModel: PropertyOperatingModel
+    startDate: string; endDate: string; fixedAmount?: string; managementFeePercent?: string; paymentPeriod: string
+    paymentCycleCount: number; currency: string; status: string; notes?: string },
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<OwnerContractRecord> {
+  const query = `mutation CreateOwnerContract($input: CreateOwnerContractInput!) { createOwnerContract(input: $input) {
+    id contractNumber startDate endDate status notes version parties { hostProfileId partyRole ownershipPercent primary }
+    propertyTerms { propertyId operatingModel effectiveFrom effectiveTo fixedAmount managementFeePercent paymentPeriod paymentCycleCount currency status }
+  } }`
+  const data = await graphqlRequest<{ createOwnerContract: OwnerContractRecord }>(graphqlUrl, accessToken, 'CreateOwnerContract', query, { input }, undefined, fetcher)
+  return data.createOwnerContract
+}
+
+export interface AdminBookingRecord {
+  id: string; bookingCode: string; propertyId: string; customerId?: string | null; guestName: string; guestPhone: string
+  guestEmail?: string | null; propertyName?: string | null; branchId?: string | null; status: string; checkInDate: string
+  checkOutDate: string; totalAmount?: string | null; currency: string; createdAt: string; version: string
+}
+
+export interface AdminBookingTimeline {
+  nodes: AdminBookingRecord[]
+  fromDate: string
+  toDateExclusive: string
+  truncated: boolean
+}
+
+const ADMIN_BOOKING_FIELDS = `id bookingCode propertyId customerId guestName guestPhone guestEmail propertyName branchId status checkInDate checkOutDate totalAmount currency createdAt version`
+
+export async function fetchAdminBookings(
+  graphqlUrl: string, accessToken: string, input: { status?: string; limit?: number }, signal?: AbortSignal,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<AdminBookingRecord[]> {
+  const query = `query AdminBookings($status: String, $limit: Int) { bookings(status: $status, limit: $limit) { ${ADMIN_BOOKING_FIELDS} } }`
+  const data = await graphqlRequest<{ bookings: AdminBookingRecord[] }>(graphqlUrl, accessToken, 'AdminBookings', query,
+    { status: input.status || null, limit: Math.min(100, Math.max(1, input.limit ?? 100)) }, signal, fetcher)
+  return data.bookings
+}
+
+export async function fetchAdminBookingTimeline(
+  graphqlUrl: string,
+  accessToken: string,
+  input: { propertyIds: string[]; fromDate: string; toDateExclusive: string },
+  signal?: AbortSignal,
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<AdminBookingTimeline> {
+  const query = `query AdminBookingTimeline($input: BookingTimelineInput!) {
+    bookingTimeline(input: $input) { nodes { ${ADMIN_BOOKING_FIELDS} } fromDate toDateExclusive truncated }
+  }`
+  const data = await graphqlRequest<{ bookingTimeline: AdminBookingTimeline }>(graphqlUrl, accessToken,
+    'AdminBookingTimeline', query, { input }, signal, fetcher)
+  return data.bookingTimeline
+}
+
+export async function createAdminBooking(
+  graphqlUrl: string, accessToken: string,
+  input: { idempotencyKey: string; propertyId: string; propertyName: string; hostProfileId?: string; customerProfileId?: string
+    guestName: string; guestPhone: string; guestEmail?: string; checkInDate: string; checkOutDate: string; adults: number; children: number
+    stayType: string; unitPrice: string; discountAmount: string; feeAmount: string; taxAmount: string; currency: string; notes?: string },
+  fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<AdminBookingRecord> {
+  const query = `mutation CreateAdminBooking($input: CreateBookingInput!) { createBooking(input: $input) { ${ADMIN_BOOKING_FIELDS} } }`
+  const data = await graphqlRequest<{ createBooking: AdminBookingRecord }>(graphqlUrl, accessToken, 'CreateAdminBooking', query, { input }, undefined, fetcher)
+  return data.createBooking
+}
+
+export async function transitionAdminBooking(
+  graphqlUrl: string, accessToken: string, action: 'confirm' | 'check-in' | 'check-out' | 'cancel',
+  input: { id: string; expectedVersion: string; reason: string }, fetcher: typeof globalThis.fetch = globalThis.fetch,
+): Promise<AdminBookingRecord> {
+  const operations = {
+    confirm: ['ConfirmBooking', 'confirmBooking'],
+    'check-in': ['CheckInBooking', 'checkInBooking'],
+    'check-out': ['CheckOutBooking', 'checkOutBooking'],
+    cancel: ['CancelBooking', 'cancelBooking'],
+  } as const
+  const [operation, field] = operations[action]
+  const query = `mutation ${operation}($id: ID!, $expectedVersion: String!, $reason: String!) { ${field}(id: $id, expectedVersion: $expectedVersion, reason: $reason) { ${ADMIN_BOOKING_FIELDS} } }`
+  const data = await graphqlRequest<Record<string, AdminBookingRecord>>(graphqlUrl, accessToken, operation, query, input, undefined, fetcher)
+  return data[field]
 }

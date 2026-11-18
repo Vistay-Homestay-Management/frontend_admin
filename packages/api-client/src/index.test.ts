@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  checkCustomerContactAvailability,
+  checkCustomerIdentityDocumentAvailability,
   consumeNotificationStream,
   createProfileAccount,
   createUserProfile,
@@ -57,6 +59,58 @@ describe('SseParser', () => {
 })
 
 describe('identity administration contract', () => {
+  it('checks normalized customer contacts through the permission-bound resolver', async () => {
+    const fetcher: typeof fetch = async (_input, init) => {
+      const request = JSON.parse(String(init?.body)) as {
+        operationName: string
+        variables: Record<string, unknown>
+      }
+      expect(request.operationName).toBe('CustomerContactAvailability')
+      expect(request.variables).toEqual({
+        email: 'guest@example.test',
+        contactPhone: '+84 901 234 567',
+      })
+      return new Response(JSON.stringify({
+        data: {
+          customerContactAvailability: {
+            emailAvailable: false,
+            phoneAvailable: true,
+          },
+        },
+      }), { status: 200 })
+    }
+
+    await expect(checkCustomerContactAvailability(
+      '/graphql', 'token',
+      { email: ' guest@example.test ', contactPhone: ' +84 901 234 567 ' },
+      undefined, fetcher,
+    )).resolves.toEqual({ emailAvailable: false, phoneAvailable: true })
+  })
+
+  it('checks document availability while keeping hashing on the server', async () => {
+    const fetcher: typeof fetch = async (_input, init) => {
+      const request = JSON.parse(String(init?.body)) as {
+        operationName: string
+        variables: Record<string, unknown>
+      }
+      expect(request.operationName).toBe('CustomerIdentityDocumentAvailability')
+      expect(request.variables).toEqual({
+        nationalityCode: 'VN',
+        documentType: 'CCCD',
+        documentNumber: '001234567890',
+      })
+      return new Response(JSON.stringify({
+        data: { customerIdentityDocumentAvailability: { available: false } },
+      }), { status: 200 })
+    }
+
+    await expect(checkCustomerIdentityDocumentAvailability(
+      '/graphql', 'token',
+      { nationalityCode: 'VN', documentType: 'CCCD', documentNumber: ' 001234567890 ' },
+      undefined, fetcher,
+    )).resolves.toBe(false)
+  })
+
   it('maps each profile type to its permission-bound GraphQL mutation', async () => {
     const requests: Array<{ operationName: string; variables: Record<string, unknown> }> = []
     const fetcher: typeof fetch = async (_input, init) => {
@@ -69,6 +123,7 @@ describe('identity administration contract', () => {
         profileId: 'profile-1', accountId: null, accountType: 'CUSTOMER', displayName: 'Nguyen An',
         email: 'an@example.test', contactPhone: null, status: 'ACTIVE', referenceCode: null,
         subtype: null, verificationStatus: null, relevantDate: null, address: null, taxCode: null,
+        nationalityCode: 'VNM', documentType: 'CCCD',
         version: 0, createdAt: '2026-11-15T00:00:00Z', updatedAt: '2026-11-15T00:00:00Z',
       } } }), { status: 200 })
     }
@@ -76,6 +131,9 @@ describe('identity administration contract', () => {
     for (const accountType of ['CUSTOMER', 'ADMIN', 'HOST'] as const) {
       await createUserProfile('/graphql', 'token', {
         accountType, fullName: ' Nguyen An ', email: ' an@example.test ', reason: 'Create known profile',
+        ...(accountType === 'CUSTOMER' ? {
+          nationalityCode: 'VN', documentType: 'CCCD' as const, documentNumber: '001234567890',
+        } : {}),
         idempotencyKey: `profile-${accountType}`,
       }, fetcher)
     }
@@ -85,6 +143,7 @@ describe('identity administration contract', () => {
     ])
     expect(requests[0]?.variables.input).toEqual(expect.objectContaining({
       fullName: 'Nguyen An', email: 'an@example.test', idempotencyKey: 'profile-CUSTOMER',
+      nationalityCode: 'VN', documentType: 'CCCD', documentNumber: '001234567890',
     }))
   })
 

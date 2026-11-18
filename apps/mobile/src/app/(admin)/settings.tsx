@@ -14,7 +14,7 @@ export default function SettingsScreen() {
   const { auth } = useMobileSession()
   const logout = () => void auth.logout()
   return <ScrollView keyboardShouldPersistTaps="handled" style={pageStyles.scroll} contentContainerStyle={pageStyles.content}>
-    <PageHeading eyebrow="Cá nhân" title="Cài đặt" detail="Hồ sơ, thông báo và bảo mật tài khoản quản trị hiện tại." />
+    <PageHeading eyebrow="Cá nhân" title="Cài đặt" detail="Hồ sơ và bảo mật tài khoản" />
     <View style={styles.group}>
       <SectionHeading title="Hồ sơ" />
       <PersonalProfileEditor accessToken={accessToken} graphqlUrl={config.graphqlUrl} onUpdated={retryViewer} viewer={viewer} />
