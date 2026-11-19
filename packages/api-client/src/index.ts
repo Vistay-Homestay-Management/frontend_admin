@@ -1163,7 +1163,18 @@ export async function graphqlRequest<T>(
   })
 
   if (!response.ok) {
-    throw new ApiError(`Yêu cầu GraphQL thất bại (${response.status})`, response.status)
+    let message = `Yêu cầu GraphQL thất bại (${response.status})`
+    let code: string | undefined
+    try {
+      const problem = await response.json() as GraphqlResponse<unknown>
+      if (problem.errors?.length) {
+        message = graphqlErrorMessage(problem.errors)
+        code = graphqlErrorCode(problem.errors)
+      }
+    } catch {
+      // Preserve the HTTP fallback when an edge proxy returns a non-JSON body.
+    }
+    throw new ApiError(message, response.status, code)
   }
   const payload = await response.json() as GraphqlResponse<T>
   if (payload.errors?.length) {

@@ -18,6 +18,7 @@ import {
   fetchPropertyAvailability,
   fetchUserDirectory,
   fetchViewer,
+  graphqlRequest,
   isDurableCursor,
   mapNotificationReference,
   mergeNotifications,
@@ -227,6 +228,29 @@ describe('GraphQL client', () => {
         'x-csrf-token': '1',
       }),
     }))
+  })
+
+  it('surfaces GraphQL details returned with an HTTP error status', async () => {
+    const fetcher: typeof fetch = async () => new Response(JSON.stringify({
+      errors: [{
+        message: 'Cannot query field "propertyPortfolio" on type "Query".',
+        extensions: { code: 'GRAPHQL_VALIDATION_FAILED' },
+      }],
+    }), { status: 400, headers: { 'content-type': 'application/json' } })
+
+    await expect(graphqlRequest('/graphql', 'access-token', 'SchemaProbe', 'query SchemaProbe { viewer { accountId } }', {}, undefined, fetcher))
+      .rejects.toMatchObject({
+        message: 'Cannot query field "propertyPortfolio" on type "Query".',
+        status: 400,
+        code: 'GRAPHQL_VALIDATION_FAILED',
+      })
+  })
+
+  it('keeps the HTTP fallback when a proxy returns a non-JSON error page', async () => {
+    const fetcher: typeof fetch = async () => new Response('Bad Gateway', { status: 502 })
+
+    await expect(graphqlRequest('/graphql', 'access-token', 'SchemaProbe', 'query SchemaProbe { viewer { accountId } }', {}, undefined, fetcher))
+      .rejects.toMatchObject({ message: 'Yêu cầu GraphQL thất bại (502)', status: 502 })
   })
 
   it('consumes GraphQL-over-SSE and forwards the durable cursor', async () => {
