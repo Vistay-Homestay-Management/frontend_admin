@@ -20,6 +20,7 @@ import {
   generateSecureUUID,
   initBookingSession,
   type BookingSessionContext,
+  type ReconciliationDeclaration,
 } from './lifecycle.js'
 
 describe('Navigation Intent & Parser (P0-02, P0-05)', () => {
@@ -39,11 +40,20 @@ describe('Navigation Intent & Parser (P0-02, P0-05)', () => {
     expect(sanitizeBookingSection(null)).toBe('map')
   })
 
-  it('sanitizes date strings according to YYYY-MM-DD pattern', () => {
+  it('sanitizes date strings according to YYYY-MM-DD pattern and validates real calendar dates', () => {
     expect(sanitizeDateString('2026-11-23')).toBe('2026-11-23')
     expect(sanitizeDateString(' 2026-01-05 ')).toBe('2026-01-05')
+    // Leap year 2024 has Feb 29
+    expect(sanitizeDateString('2024-02-29')).toBe('2024-02-29')
+
+    // Invalid calendar dates must return undefined
+    expect(sanitizeDateString('2026-02-30')).toBeUndefined() // Feb 30 does not exist
+    expect(sanitizeDateString('2025-02-29')).toBeUndefined() // Non-leap year Feb 29
+    expect(sanitizeDateString('2026-04-31')).toBeUndefined() // April only has 30 days
+    expect(sanitizeDateString('2026-13-01')).toBeUndefined() // Month 13 does not exist
     expect(sanitizeDateString('23-11-2026')).toBeUndefined()
     expect(sanitizeDateString('malicious-script')).toBeUndefined()
+    expect(sanitizeDateString('')).toBeUndefined()
     expect(sanitizeDateString(null)).toBeUndefined()
   })
 
@@ -71,6 +81,28 @@ describe('Navigation Intent & Parser (P0-02, P0-05)', () => {
     expect(parsed).toEqual(intent)
   })
 
+  it('handles Web Hash round-trip for properties, users, and analytics', () => {
+    const propIntent: NavigationIntent = {
+      destination: 'properties',
+      section: 'management',
+      filters: { needsAttention: true, search: 'Apartment' },
+    }
+    expect(parseWebHash(formatWebHash(propIntent))).toEqual(propIntent)
+
+    const userIntent: NavigationIntent = {
+      destination: 'users',
+      section: 'hosts',
+      filters: { search: 'John' },
+    }
+    expect(parseWebHash(formatWebHash(userIntent))).toEqual(userIntent)
+
+    const analyticsIntent: NavigationIntent = {
+      destination: 'analytics',
+      section: 'operations',
+    }
+    expect(parseWebHash(formatWebHash(analyticsIntent))).toEqual(analyticsIntent)
+  })
+
   it('handles Web Hash edge cases gracefully', () => {
     expect(parseWebHash('')).toBeNull()
     expect(parseWebHash('#')).toBeNull()
@@ -84,7 +116,7 @@ describe('Navigation Intent & Parser (P0-02, P0-05)', () => {
     })
   })
 
-  it('performs Mobile Expo Router round-trip correctly', () => {
+  it('performs Mobile Expo Router round-trip correctly for booking', () => {
     const intent: NavigationIntent = {
       destination: 'booking',
       section: 'check-in',
@@ -101,6 +133,24 @@ describe('Navigation Intent & Parser (P0-02, P0-05)', () => {
 
     const parsed = parseMobileRoute(pathname, params)
     expect(parsed).toEqual(intent)
+  })
+
+  it('performs Mobile Expo Router round-trip for analytics with route group handling', () => {
+    const analyticsIntent: NavigationIntent = {
+      destination: 'analytics',
+      section: 'operations',
+    }
+
+    const { pathname, params } = formatMobileRoute(analyticsIntent)
+    expect(pathname).toBe('/overview')
+    expect(params.section).toBe('operations')
+
+    // Direct /overview route
+    expect(parseMobileRoute('/overview', params)).toEqual(analyticsIntent)
+    // Expo Route group /(admin)/overview
+    expect(parseMobileRoute('/(admin)/overview', params)).toEqual(analyticsIntent)
+    // Normalized route /admin/overview
+    expect(parseMobileRoute('/admin/overview', params)).toEqual(analyticsIntent)
   })
 })
 
@@ -159,12 +209,16 @@ describe('Business Timezone Utilities (P0-04, P0-10)', () => {
 })
 
 describe('Idempotency & Lifecycle State Machine (P0-03, P0-08, P0-11)', () => {
-  it('generates secure UUID and rejects insecure Math.random', () => {
+  it('generates secure UUID and rejects insecure Math.random or invalid format', () => {
     const key = generateSecureUUID()
-    expect(key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
+    expect(key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
 
     const customSecureProvider = () => '11111111-2222-4333-8444-555555555555'
     expect(generateSecureUUID(customSecureProvider)).toBe('11111111-2222-4333-8444-555555555555')
+
+    // Rejects non-UUID format provider output
+    const badProvider = () => 'not-a-valid-uuid-string'
+    expect(() => generateSecureUUID(badProvider)).toThrow(/INVALID_SECURE_UUID/)
   })
 
   it('initializes a clean session in READY state with a secure key', () => {
@@ -202,7 +256,7 @@ describe('Idempotency & Lifecycle State Machine (P0-03, P0-08, P0-11)', () => {
 
     expect(session.status).toBe('READY')
     expect(session.lastError).toBe('400 Bad Request: Invalid guest phone')
-    expect(session.idempotencyKey).toBe(originalKey) // Kept for editing
+    expect(session.idempotencyKey).toBe(originalKey)
   })
 
   it('CRITICAL: UNKNOWN_OUTCOME retains key and payload even if form is dismissed and reopened', () => {
@@ -225,9 +279,8 @@ describe('Idempotency & Lifecycle State Machine (P0-03, P0-08, P0-11)', () => {
     expect(session.idempotencyKey).toBe(originalKey)
     expect(session.payloadFingerprint).toBe(payloadHash)
 
-    // 3. User closes form / modal
+    // 3. User closes form / modal -> MUST NOT reset to IDLE
     session = bookingSessionReducer(session, { type: 'DISMISS_FORM' })
-    // MUST NOT wipe key or reset status to IDLE!
     expect(session.status).toBe('UNKNOWN_OUTCOME')
     expect(session.idempotencyKey).toBe(originalKey)
     expect(session.payloadFingerprint).toBe(payloadHash)
@@ -250,6 +303,98 @@ describe('Idempotency & Lifecycle State Machine (P0-03, P0-08, P0-11)', () => {
     expect(session.status).toBe('SUCCEEDED')
   })
 
+  it('CRITICAL: retrying UNKNOWN_OUTCOME with a modified payload throws IDEMPOTENCY_PAYLOAD_MISMATCH', () => {
+    let session = initBookingSession()
+    const payloadOriginal = 'sha256-original-payload'
+    const payloadModified = 'sha256-modified-payload'
+
+    session = bookingSessionReducer(session, {
+      type: 'START_SUBMIT',
+      payloadFingerprint: payloadOriginal,
+    })
+    session = bookingSessionReducer(session, {
+      type: 'SUBMIT_ERROR_UNKNOWN_OUTCOME',
+      error: '504 Gateway Timeout',
+    })
+
+    // Attempting to retry with a modified payload must throw
+    expect(() =>
+      bookingSessionReducer(session, {
+        type: 'START_SUBMIT',
+        payloadFingerprint: payloadModified,
+      })
+    ).toThrow(/IDEMPOTENCY_PAYLOAD_MISMATCH/)
+  })
+
+  it('dismissing form during SUBMITTING preserves SUBMITTING status', () => {
+    let session = initBookingSession()
+    session = bookingSessionReducer(session, {
+      type: 'START_SUBMIT',
+      payloadFingerprint: 'payload-hash',
+    })
+    expect(session.status).toBe('SUBMITTING')
+
+    session = bookingSessionReducer(session, { type: 'DISMISS_FORM' })
+    expect(session.status).toBe('SUBMITTING')
+  })
+
+  it('cannot abandon while request is currently in-flight', () => {
+    let session = initBookingSession()
+    session = bookingSessionReducer(session, {
+      type: 'START_SUBMIT',
+      payloadFingerprint: 'payload-hash',
+    })
+
+    expect(() =>
+      bookingSessionReducer(session, {
+        type: 'FORCE_ABANDON_PENDING',
+        reconciliationProof: {
+          declaredBy: 'reception-01',
+          reconciliationStatus: 'RECONCILED_NOT_CREATED',
+          referenceCheckId: 'AUDIT-REF-999',
+          notes: 'Tested in-flight',
+          verifiedAt: Date.now(),
+        },
+      })
+    ).toThrow(/CANNOT_ABANDON_WHILE_SUBMITTING/)
+  })
+
+  it('cannot reopen form after SUCCEEDED session', () => {
+    let session = initBookingSession()
+    session = bookingSessionReducer(session, {
+      type: 'START_SUBMIT',
+      payloadFingerprint: 'payload-hash',
+    })
+    session = bookingSessionReducer(session, { type: 'SUBMIT_SUCCESS' })
+
+    expect(() => bookingSessionReducer(session, { type: 'REOPEN_FORM' })).toThrow(
+      /CANNOT_REOPEN_SUCCEEDED_SESSION/
+    )
+  })
+
+  it('late error arrival after SUCCEEDED is safely ignored', () => {
+    let session = initBookingSession()
+    session = bookingSessionReducer(session, {
+      type: 'START_SUBMIT',
+      payloadFingerprint: 'payload-hash',
+    })
+    session = bookingSessionReducer(session, { type: 'SUBMIT_SUCCESS' })
+
+    // Late deterministic error
+    session = bookingSessionReducer(session, {
+      type: 'SUBMIT_ERROR_DETERMINISTIC',
+      error: 'Late network error',
+    })
+    expect(session.status).toBe('SUCCEEDED')
+
+    // Late unknown error
+    session = bookingSessionReducer(session, {
+      type: 'SUBMIT_ERROR_UNKNOWN_OUTCOME',
+      error: 'Late timeout error',
+    })
+    expect(session.status).toBe('SUCCEEDED')
+  })
+
   it('strictly guards FORCE_ABANDON_PENDING requiring verified reconciliation proof', () => {
     let session = initBookingSession()
     const firstKey = session.idempotencyKey
@@ -263,31 +408,66 @@ describe('Idempotency & Lifecycle State Machine (P0-03, P0-08, P0-11)', () => {
       error: 'Network drop',
     })
 
-    // 1. Attempting to abandon without valid proof throws an Error
+    // 1. Attempting to abandon with RECONCILED_MANUALLY_CONFIRMED throws
     expect(() =>
       bookingSessionReducer(session, {
         type: 'FORCE_ABANDON_PENDING',
         reconciliationProof: {
-          confirmedBy: 'staff-01',
-          reconciliationStatus: 'RECONCILED_MANUALLY_CONFIRMED', // Invalid: if confirmed created, cannot abandon
+          declaredBy: 'staff-01',
+          reconciliationStatus: 'RECONCILED_MANUALLY_CONFIRMED',
+          referenceCheckId: 'AUDIT-101',
           notes: 'Booking was created on server',
+          verifiedAt: Date.now(),
         },
       })
     ).toThrow(/CANNOT_ABANDON_WITHOUT_RECONCILIATION/)
 
-    // 2. Supplying valid verified proof that booking was NOT created succeeds
+    // 2. Attempting to abandon without referenceCheckId throws
+    expect(() =>
+      bookingSessionReducer(session, {
+        type: 'FORCE_ABANDON_PENDING',
+        reconciliationProof: {
+          declaredBy: 'staff-01',
+          reconciliationStatus: 'RECONCILED_NOT_CREATED',
+          referenceCheckId: '',
+          notes: 'Missing audit reference',
+          verifiedAt: Date.now(),
+        },
+      })
+    ).toThrow(/CANNOT_ABANDON_WITHOUT_RECONCILIATION/)
+
+    // 3. Attempting to abandon without declaredBy throws
+    expect(() =>
+      bookingSessionReducer(session, {
+        type: 'FORCE_ABANDON_PENDING',
+        reconciliationProof: {
+          declaredBy: '',
+          reconciliationStatus: 'RECONCILED_NOT_CREATED',
+          referenceCheckId: 'AUDIT-102',
+          notes: 'Missing staff id',
+          verifiedAt: Date.now(),
+        },
+      })
+    ).toThrow(/CANNOT_ABANDON_WITHOUT_RECONCILIATION/)
+
+    // 4. Supplying valid verified proof succeeds and generates new session key
+    const customKey = '22222222-3333-4444-8555-666666666666'
     session = bookingSessionReducer(session, {
       type: 'FORCE_ABANDON_PENDING',
+      keyProvider: () => customKey,
       reconciliationProof: {
-        confirmedBy: 'staff-01',
+        declaredBy: 'staff-01',
         reconciliationStatus: 'RECONCILED_NOT_CREATED',
+        referenceCheckId: 'AUDIT-REF-999',
         notes: 'Checked booking database and bank gateway: no reservation recorded.',
+        verifiedAt: Date.now(),
       },
     })
 
     expect(session.status).toBe('READY')
-    expect(session.idempotencyKey).not.toBe(firstKey)
+    expect(session.idempotencyKey).toBe(customKey)
     expect(session.payloadFingerprint).toBeNull()
     expect(session.reconciliationAudit?.reconciliationStatus).toBe('RECONCILED_NOT_CREATED')
+    expect(session.reconciliationAudit?.referenceCheckId).toBe('AUDIT-REF-999')
   })
 })

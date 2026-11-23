@@ -7,10 +7,12 @@ export type BookingIntentStatus =
 
 export type ReconciliationStatus = 'RECONCILED_NOT_CREATED' | 'RECONCILED_MANUALLY_CONFIRMED'
 
-export interface ReconciliationProof {
-  confirmedBy: string
+export interface ReconciliationDeclaration {
+  declaredBy: string
   reconciliationStatus: ReconciliationStatus
+  referenceCheckId: string // Unique audit check reference or transaction query ID
   notes: string
+  verifiedAt: number
 }
 
 export interface BookingSessionContext {
@@ -20,39 +22,51 @@ export interface BookingSessionContext {
   lastError: string | null
   createdAt: number
   updatedAt: number
-  reconciliationAudit?: ReconciliationProof
+  reconciliationAudit?: ReconciliationDeclaration
 }
 
 export type SecureRandomProvider = () => string
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
 /**
- * Creates a cryptographically secure UUIDv4.
+ * Creates and validates a cryptographically secure UUIDv4.
  *
  * Uses:
  * 1. Provided secure provider (e.g., expo-crypto on React Native / Mobile)
  * 2. Web Crypto API (globalThis.crypto.randomUUID)
  *
- * Throws an Error if no secure random source is available.
- * NEVER falls back to Math.random().
+ * Throws an Error if:
+ * - No secure random source is available (NEVER falls back to Math.random).
+ * - The provider returns a value that does not match UUID regex.
  */
 export function generateSecureUUID(provider?: SecureRandomProvider): string {
-  if (provider && typeof provider === 'function') {
-    const key = provider()
-    if (typeof key === 'string' && key.length > 0) return key
-  }
+  let key: string | undefined
 
-  if (
+  if (provider && typeof provider === 'function') {
+    key = provider()
+  } else if (
     typeof globalThis !== 'undefined' &&
     globalThis.crypto &&
     typeof globalThis.crypto.randomUUID === 'function'
   ) {
-    return globalThis.crypto.randomUUID()
+    key = globalThis.crypto.randomUUID()
   }
 
-  throw new Error(
-    'SECURE_RANDOM_UNAVAILABLE: No cryptographically secure random source available. ' +
-      'Please inject a secure provider (e.g., expo-crypto on Mobile).'
-  )
+  if (!key) {
+    throw new Error(
+      'SECURE_RANDOM_UNAVAILABLE: No cryptographically secure random source available. ' +
+        'Please inject a secure provider (e.g., expo-crypto on Mobile).'
+    )
+  }
+
+  if (!UUID_REGEX.test(key)) {
+    throw new Error(
+      `INVALID_SECURE_UUID: The generated random key "${key}" is not a valid UUIDv4 string.`
+    )
+  }
+
+  return key
 }
 
 /**
@@ -83,7 +97,12 @@ export type BookingSessionAction =
   | {
       type: 'FORCE_ABANDON_PENDING'
       keyProvider?: SecureRandomProvider
-      reconciliationProof: ReconciliationProof
+      reconciliationProof: ReconciliationDeclaration
+      now?: number
+    }
+  | {
+      type: 'INIT_NEW_SESSION'
+      keyProvider?: SecureRandomProvider
       now?: number
     }
 
@@ -103,6 +122,22 @@ export function bookingSessionReducer(
           `Cannot submit booking in state "${current.status}". Expected "READY" or "UNKNOWN_OUTCOME".`
         )
       }
+
+      // P0-01 FIX: In UNKNOWN_OUTCOME, payload fingerprint MUST match the original!
+      if (current.status === 'UNKNOWN_OUTCOME') {
+        if (!current.payloadFingerprint) {
+          throw new Error(
+            'CORRUPTED_SESSION_STATE: UNKNOWN_OUTCOME session has no stored payloadFingerprint.'
+          )
+        }
+        if (current.payloadFingerprint !== action.payloadFingerprint) {
+          throw new Error(
+            'IDEMPOTENCY_PAYLOAD_MISMATCH: Cannot retry an UNKNOWN_OUTCOME session with a modified payload. ' +
+              'The existing idempotency key is bound to the original booking payload.'
+          )
+        }
+      }
+
       return {
         ...current,
         status: 'SUBMITTING',
@@ -127,8 +162,9 @@ export function bookingSessionReducer(
     }
 
     case 'SUBMIT_ERROR_DETERMINISTIC': {
-      // Deterministic error (e.g. 400 Validation, 403 Forbidden).
-      // Booking was definitely NOT created, user can edit payload and retry.
+      // Late arrival guard: if already succeeded, ignore late errors
+      if (current.status === 'SUCCEEDED') return current
+
       return {
         ...current,
         status: 'READY',
@@ -138,9 +174,9 @@ export function bookingSessionReducer(
     }
 
     case 'SUBMIT_ERROR_UNKNOWN_OUTCOME': {
-      // Network drop, timeout (504, 502, connection reset).
-      // Booking MAY have been committed on backend.
-      // MUST PRESERVE idempotencyKey and payloadFingerprint for reconciliation!
+      // Late arrival guard: if already succeeded, ignore late unknown errors
+      if (current.status === 'SUCCEEDED') return current
+
       return {
         ...current,
         status: 'UNKNOWN_OUTCOME',
@@ -150,9 +186,8 @@ export function bookingSessionReducer(
     }
 
     case 'DISMISS_FORM': {
-      // Closing or minimizing the form.
-      // If UNKNOWN_OUTCOME, we keep status = UNKNOWN_OUTCOME and retain the key and fingerprint!
-      if (current.status === 'UNKNOWN_OUTCOME') {
+      // P0-02 FIX: Do not wipe in-flight SUBMITTING or UNKNOWN_OUTCOME!
+      if (current.status === 'SUBMITTING' || current.status === 'UNKNOWN_OUTCOME') {
         return {
           ...current,
           updatedAt: ts,
@@ -166,9 +201,14 @@ export function bookingSessionReducer(
     }
 
     case 'REOPEN_FORM': {
-      // Re-opening the modal/workspace.
-      // If it was UNKNOWN_OUTCOME, user sees the pending reconciliation state!
-      if (current.status === 'UNKNOWN_OUTCOME') {
+      // P0-03 FIX: Reopening a completed session with the same key is disallowed
+      if (current.status === 'SUCCEEDED') {
+        throw new Error(
+          'CANNOT_REOPEN_SUCCEEDED_SESSION: Booking session already succeeded. ' +
+            'Call INIT_NEW_SESSION to start a fresh intent with a new idempotency key.'
+        )
+      }
+      if (current.status === 'SUBMITTING' || current.status === 'UNKNOWN_OUTCOME') {
         return {
           ...current,
           updatedAt: ts,
@@ -182,16 +222,26 @@ export function bookingSessionReducer(
     }
 
     case 'FORCE_ABANDON_PENDING': {
-      // Guarded abandon: Only allowed when verified that the booking was NOT created on server
+      // P0-03 FIX: Cannot abandon while request is in-flight!
+      if (current.status === 'SUBMITTING') {
+        throw new Error(
+          'CANNOT_ABANDON_WHILE_SUBMITTING: Request is currently in-flight. ' +
+            'Wait for completion or timeout before attempting to abandon.'
+        )
+      }
+
+      // P0-04 FIX: In UNKNOWN_OUTCOME, strictly require declaredBy, RECONCILED_NOT_CREATED, and referenceCheckId
       if (current.status === 'UNKNOWN_OUTCOME') {
+        const proof = action.reconciliationProof
         if (
-          !action.reconciliationProof ||
-          action.reconciliationProof.reconciliationStatus !== 'RECONCILED_NOT_CREATED' ||
-          !action.reconciliationProof.confirmedBy.trim()
+          !proof ||
+          proof.reconciliationStatus !== 'RECONCILED_NOT_CREATED' ||
+          !proof.declaredBy?.trim() ||
+          !proof.referenceCheckId?.trim()
         ) {
           throw new Error(
             'CANNOT_ABANDON_WITHOUT_RECONCILIATION: Abandoning an UNKNOWN_OUTCOME booking intent ' +
-              'requires verified proof (RECONCILED_NOT_CREATED) confirming the booking was not committed.'
+              'requires verified proof (RECONCILED_NOT_CREATED), declaredBy, and a referenceCheckId.'
           )
         }
       }
@@ -205,6 +255,29 @@ export function bookingSessionReducer(
         createdAt: ts,
         updatedAt: ts,
         reconciliationAudit: action.reconciliationProof,
+      }
+    }
+
+    case 'INIT_NEW_SESSION': {
+      if (current.status === 'SUBMITTING') {
+        throw new Error(
+          'CANNOT_INIT_NEW_SESSION_WHILE_SUBMITTING: An existing request is in-flight.'
+        )
+      }
+      if (current.status === 'UNKNOWN_OUTCOME') {
+        throw new Error(
+          'CANNOT_INIT_NEW_SESSION_WITH_PENDING_OUTCOME: Unresolved UNKNOWN_OUTCOME session exists. ' +
+            'Must reconcile or formally abandon before initiating a new session.'
+        )
+      }
+      const newKey = generateSecureUUID(action.keyProvider)
+      return {
+        idempotencyKey: newKey,
+        status: 'READY',
+        payloadFingerprint: null,
+        lastError: null,
+        createdAt: ts,
+        updatedAt: ts,
       }
     }
 

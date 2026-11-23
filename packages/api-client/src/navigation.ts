@@ -74,7 +74,21 @@ export function sanitizeBookingSection(raw?: string | null): BookingSection {
 export function sanitizeDateString(raw?: string | null): string | undefined {
   if (!raw) return undefined
   const trimmed = raw.trim()
-  return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : undefined
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed)
+  if (!match) return undefined
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  if (month < 1 || month > 12 || day < 1 || day > 31) return undefined
+  const date = new Date(Date.UTC(year, month - 1, day))
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return undefined
+  }
+  return trimmed
 }
 
 /**
@@ -201,7 +215,7 @@ export function parseMobileRoute(
   pathname: string,
   params: Record<string, string | string[] | undefined> = {}
 ): NavigationIntent | null {
-  const normalizedPath = pathname.replace(/^\/(admin)?\/?/, '')
+  const normalizedPath = pathname.replace(/^\/?(\(admin\)|admin)?\/?/, '')
   const firstParam = (val?: string | string[]) => (Array.isArray(val) ? val[0] : val)
 
   if (normalizedPath === 'booking' || normalizedPath === '') {
@@ -253,6 +267,18 @@ export function parseMobileRoute(
     }
   }
 
+  if (normalizedPath === 'overview' || normalizedPath === 'analytics') {
+    const rawSection = firstParam(params.section)
+    const section: AnalyticsSection = (VALID_ANALYTICS_SECTIONS as readonly string[]).includes(rawSection || '')
+      ? (rawSection as AnalyticsSection)
+      : 'overview'
+
+    return {
+      destination: 'analytics',
+      section,
+    }
+  }
+
   return null
 }
 
@@ -286,6 +312,11 @@ export function formatMobileRoute(intent: NavigationIntent): {
     params.section = intent.section
     if (intent.filters?.search) params.search = intent.filters.search
     return { pathname: '/users', params }
+  }
+
+  if (intent.destination === 'analytics') {
+    params.section = intent.section
+    return { pathname: '/overview', params }
   }
 
   return { pathname: '/overview', params }
