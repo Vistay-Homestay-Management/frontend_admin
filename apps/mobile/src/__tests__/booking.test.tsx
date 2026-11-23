@@ -18,6 +18,7 @@ const inventoryMocks = vi.hoisted(() => ({
   releaseInventoryBlock: vi.fn(),
 }))
 
+vi.mock('expo-router', () => ({ useLocalSearchParams: () => ({}), useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 vi.mock('@expo/vector-icons', () => ({
   Ionicons: 'Ionicons',
 }))

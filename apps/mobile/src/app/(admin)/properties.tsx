@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Ionicons } from '@expo/vector-icons'
 import { fetch as expoFetch } from 'expo/fetch'
+import { useLocalSearchParams } from 'expo-router'
 import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import {
   createOwnerContract, createPropertyUnit, createUserProfile, fetchOwnerContracts, fetchPropertyPortfolio, fetchUserDirectory,
@@ -9,6 +10,7 @@ import {
 import { useAdmin } from '../../AdminContext'
 import { LoadState, Segmented, pageStyles, useWorkspaceScrollGate } from '../../ui/primitives'
 import { palette, radii } from '../../ui/theme'
+import { parseMobileRoute } from '../../navigation/navigationIntent'
 
 const mobileFetch = expoFetch as typeof globalThis.fetch
 const DEFAULT_TODAY = new Date().toISOString().slice(0, 10)
@@ -32,6 +34,11 @@ const modelLabels: Record<PropertyOperatingModel, string> = { OWNED: 'Sở hữu
 
 export default function PropertiesScreen() {
   const { accessToken, config, viewer } = useAdmin()
+  const rawParams = useLocalSearchParams()
+  const intent = useMemo(
+    () => parseMobileRoute('properties', rawParams as Record<string, string | string[] | undefined>),
+    [rawParams]
+  )
   const [portfolio, setPortfolio] = useState<PropertyPortfolio>()
   const [contracts, setContracts] = useState<OwnerContractRecord[]>([])
   const [hosts, setHosts] = useState<UserDirectoryEntry[]>([])
@@ -39,6 +46,9 @@ export default function PropertiesScreen() {
   const [view, setView] = useState<PropertyView>('structure')
   const [activeFloors, setActiveFloors] = useState<Record<string, string>>({})
   const [search, setSearch] = useState('')
+  const [needsAttentionOnly, setNeedsAttentionOnly] = useState<boolean>(() =>
+    Boolean(intent?.destination === 'properties' && intent.filters?.needsAttention)
+  )
   const [cityId, setCityId] = useState('ALL')
   const [areaId, setAreaId] = useState('ALL')
   const [buildingId, setBuildingId] = useState('ALL')
@@ -56,6 +66,12 @@ export default function PropertiesScreen() {
   const canCreate = viewer.permissions.includes('property:create')
   const canReadContract = viewer.permissions.includes('contract:read')
   const canCreateContract = viewer.permissions.includes('contract:create')
+
+  useEffect(() => {
+    if (intent?.destination === 'properties' && intent.filters?.needsAttention !== undefined) {
+      setNeedsAttentionOnly(Boolean(intent.filters.needsAttention))
+    }
+  }, [intent])
 
   const load = useCallback(async () => {
     if (!canRead) { setError('Tài khoản chưa có quyền property:read.'); setLoading(false); return }
@@ -94,8 +110,9 @@ export default function PropertiesScreen() {
       && (cityId === 'ALL' || city.id === cityId)
       && (areaId === 'ALL' || area.id === areaId)
       && (buildingId === 'ALL' || building.id === buildingId)
+      && (!needsAttentionOnly || unit.operationalStatus !== 'ACTIVE')
       && (!query || `${city.name} ${area.name} ${building.name} ${floor.name} ${unit.code} ${unit.unitNumber ?? ''} ${unit.name}`.toLocaleLowerCase('vi').includes(query)))
-  }, [areaId, buildingId, cityId, search, section, unitRows])
+  }, [areaId, buildingId, cityId, needsAttentionOnly, search, section, unitRows])
   const structureGroups = useMemo<StructureGroup[]>(() => {
     const groups = new Map<string, StructureGroup & { floorMap: Map<string, { id: string; name: string; units: PropertyUnitRecord[] }> }>()
     filtered.forEach(({ city, area, building, floor, unit }) => {
@@ -169,6 +186,16 @@ export default function PropertiesScreen() {
       <View style={styles.narrowSlot}><PropertyLocationControl label="Khu vực" value={selectedArea} onPress={() => setLocationPicker('area')} /></View>
       <View style={styles.lastNarrowSlot}><PropertyLocationControl label="Tòa" value={selectedBuilding} onPress={() => setLocationPicker('building')} /></View>
     </View>}
+    {needsAttentionOnly && (
+      <View style={styles.filterPillRow}>
+        <View style={styles.filterPill}>
+          <Text style={styles.filterPillText}>Đang lọc: Cần xử lý</Text>
+          <Pressable onPress={() => setNeedsAttentionOnly(false)}>
+            <Ionicons color={palette.warning} name="close-circle" size={14} />
+          </Pressable>
+        </View>
+      </View>
+    )}
     </View>
     <View style={styles.resultsContent}>
       {notice && <Text style={styles.notice}>{notice}</Text>}
@@ -180,52 +207,64 @@ export default function PropertiesScreen() {
         : <View style={styles.list}>{contracts.filter((contract) => !search || contract.contractNumber.toLocaleLowerCase('vi').includes(search.toLocaleLowerCase('vi'))).map((contract) => <View key={contract.id} style={styles.contractCard}><View style={styles.contractTop}><Text style={styles.unitName}>{contract.contractNumber}</Text><Text style={styles.contractStatus}>{contract.status}</Text></View><Text style={styles.unitMeta}>{contract.startDate} → {contract.endDate}</Text><Text style={styles.contractProperty}>{contract.propertyTerms.map((term) => unitRows.find(({ unit }) => unit.id === term.propertyId)?.unit.name ?? term.propertyId).join(', ')}</Text></View>)}{!contracts.length && <Empty icon="document-text-outline" title="Chưa có hợp đồng" />}</View>}
     </View>
     </ScrollView>
-    <Modal animationType="slide" transparent visible={Boolean(locationPicker)} onRequestClose={() => setLocationPicker(undefined)}><View style={styles.backdrop}><View style={styles.locationSheet}><View style={styles.sheetHeader}><Text style={styles.sheetTitle}>{pickerTitle}</Text><Pressable onPress={() => setLocationPicker(undefined)}><Ionicons color={palette.evergreen} name="close" size={22} /></Pressable></View><ScrollView contentContainerStyle={styles.locationSheetOptions}><Pressable onPress={() => selectLocation('ALL')} style={[styles.locationSheetChoice, pickerValue === 'ALL' && styles.locationSheetChoiceActive]}><Text style={[styles.locationSheetText, pickerValue === 'ALL' && styles.locationSheetTextActive]}>Tất cả</Text>{pickerValue === 'ALL' && <Ionicons name="checkmark" color={palette.white} size={17} />}</Pressable>{pickerOptions.map((option) => <Pressable key={option.id} onPress={() => selectLocation(option.id)} style={[styles.locationSheetChoice, pickerValue === option.id && styles.locationSheetChoiceActive]}><Text numberOfLines={1} style={[styles.locationSheetText, pickerValue === option.id && styles.locationSheetTextActive]}>{option.name}</Text>{pickerValue === option.id && <Ionicons name="checkmark" color={palette.white} size={17} />}</Pressable>)}</ScrollView></View></View></Modal>
-    {portfolio && <UnitModal visible={unitOpen} portfolio={portfolio} graphqlUrl={config.graphqlUrl} accessToken={accessToken} onClose={() => setUnitOpen(false)} onSaved={() => { setUnitOpen(false); setNotice('Đã tạo căn và gắn chi nhánh.'); void load() }} />}
-    {portfolio && <ContractModal visible={contractOpen} units={unitRows.map((item) => item.unit)} hosts={hosts} selected={selected} graphqlUrl={config.graphqlUrl} accessToken={accessToken} canCreateHost={viewer.permissions.includes('host-profile:create')} setHosts={setHosts} onClose={() => setContractOpen(false)} onSaved={() => { setContractOpen(false); setNotice('Đã tạo hợp đồng chủ nhà.'); void load() }} />}
+    <LocationPicker visible={Boolean(locationPicker)} title={pickerTitle} value={pickerValue ?? 'ALL'} options={pickerOptions} onClose={() => setLocationPicker(undefined)} onSelect={selectLocation} />
+    <UnitDetail visible={Boolean(selected)} unit={selected} onClose={() => setSelected(undefined)} />
+    <UnitCreate visible={unitOpen} portfolio={portfolio} graphqlUrl={config.graphqlUrl} accessToken={accessToken} onClose={() => setUnitOpen(false)} onSaved={() => { setUnitOpen(false); setNotice('Đã tạo căn thành công.'); void load() }} />
+    <ContractModal visible={contractOpen} units={unitRows.map(({ unit }) => unit)} hosts={hosts} selected={selected} setHosts={setHosts} canCreateHost={canCreate} graphqlUrl={config.graphqlUrl} accessToken={accessToken} onClose={() => setContractOpen(false)} onSaved={() => { setContractOpen(false); setNotice('Đã tạo hợp đồng thành công.'); void load() }} />
   </View>
 }
 
-function PropertyLocationControl({ label, value, onPress }: { label: string; value: string; onPress: () => void }) { return <Pressable onPress={onPress} style={({ pressed }) => [styles.locationControl, pressed && styles.locationControlPressed]}><View style={styles.locationControlCopy}><Text numberOfLines={1} style={styles.locationControlLabel}>{label}</Text><Text numberOfLines={1} style={styles.locationControlValue}>{value}</Text></View><Ionicons name="chevron-down" color={palette.evergreen} size={12} /></Pressable> }
 function Metric({ label, value }: { label: string; value: number }) { return <View style={styles.metric}><Text style={styles.metricLabel}>{label}</Text><Text style={styles.metricValue}>{value}</Text></View> }
-function Empty({ icon, title }: { icon: keyof typeof Ionicons.glyphMap; title: string }) { return <View style={styles.empty}><Ionicons color={palette.sage} name={icon} size={28} /><Text style={styles.emptyTitle}>{title}</Text></View> }
+function PropertyLocationControl({ label, value, onPress }: { label: string; value: string; onPress: () => void }) { return <Pressable onPress={onPress} style={({ pressed }) => [styles.locationControl, pressed && styles.locationControlPressed]}><View style={styles.locationControlCopy}><Text style={styles.locationControlLabel}>{label}</Text><Text numberOfLines={1} style={styles.locationControlValue}>{value}</Text></View><Ionicons color={palette.muted} name="chevron-down" size={12} /></Pressable> }
+function LocationPicker({ visible, title, value, options, onClose, onSelect }: { visible: boolean; title: string; value?: string; options: { id: string; name: string }[]; onClose: () => void; onSelect: (id: string) => void }) {
+  return <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}><View style={styles.backdrop}><View style={styles.locationSheet}><View style={styles.sheetHeader}><Text style={styles.sheetTitle}>{title}</Text><Pressable onPress={onClose}><Ionicons color={palette.evergreen} name="close" size={22} /></Pressable></View><ScrollView><View style={styles.locationSheetOptions}><Pressable onPress={() => onSelect('ALL')} style={[styles.locationSheetChoice, value === 'ALL' && styles.locationSheetChoiceActive]}><Text style={[styles.locationSheetText, value === 'ALL' && styles.locationSheetTextActive]}>Tất cả</Text>{value === 'ALL' && <Ionicons color={palette.white} name="checkmark" size={16} />}</Pressable>{options.map((option) => <Pressable key={option.id} onPress={() => onSelect(option.id)} style={[styles.locationSheetChoice, value === option.id && styles.locationSheetChoiceActive]}><Text style={[styles.locationSheetText, value === option.id && styles.locationSheetTextActive]}>{option.name}</Text>{value === option.id && <Ionicons color={palette.white} name="checkmark" size={16} />}</Pressable>)}</View></ScrollView></View></View></Modal>
+}
 
-function StructureResults({ groups, activeFloors, onFloorChange, canCreateContract, onContract }: { groups: StructureGroup[]; activeFloors: Record<string, string>; onFloorChange: (buildingId: string, floorId: string) => void; canCreateContract: boolean; onContract: (unit?: PropertyUnitRecord) => Promise<void> }) {
-  if (!groups.length) return <Empty icon="business-outline" title="Chưa có căn phù hợp" />
+function StructureResults({ groups, activeFloors, onFloorChange, canCreateContract, onContract }: { groups: StructureGroup[]; activeFloors: Record<string, string>; onFloorChange: (buildingId: string, floorId: string) => void; canCreateContract: boolean; onContract: (unit: PropertyUnitRecord) => void }) {
+  if (!groups.length) return <Empty icon="business-outline" title="Không có tòa phù hợp bộ lọc" />
   return <View style={styles.structureList}>{groups.map((group) => {
     const activeFloorId = activeFloors[group.id] ?? group.floors[0]?.id
-    const floor = group.floors.find((item) => item.id === activeFloorId) ?? group.floors[0]
-    const unitCount = group.floors.reduce((total, item) => total + item.units.length, 0)
-    return <View key={group.id} style={styles.structureCard}>
-      <View style={styles.structureHeader}><View style={styles.structureIcon}><Ionicons color={palette.evergreen} name="business-outline" size={17} /></View><View style={styles.structureCopy}><Text numberOfLines={1} style={styles.structureTitle}>{group.buildingName}</Text><Text numberOfLines={1} style={styles.structureMeta}>{group.cityName} · {group.areaName}</Text></View><View style={styles.structureSummary}><Text numberOfLines={1} style={styles.structureFloor}>{floor?.name}</Text><Text style={styles.structureCount}>{floor?.units.length ?? 0}/{unitCount} căn</Text></View></View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.structureRailViewport} contentContainerStyle={styles.floorTabs}>{group.floors.map((item) => <Pressable key={item.id} onPress={() => onFloorChange(group.id, item.id)} style={[styles.floorTab, item.id === floor?.id && styles.floorTabActive]}><Text numberOfLines={1} style={[styles.floorTabText, item.id === floor?.id && styles.floorTabTextActive]}>{item.name}</Text></Pressable>)}</ScrollView>
-      {floor && <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.structureRailViewport} contentContainerStyle={styles.structureUnitRail}>{floor.units.map((unit) => <Pressable accessibilityLabel={canCreateContract ? `Tạo hợp đồng cho ${unit.name}` : unit.name} disabled={!canCreateContract} key={unit.id} onPress={() => void onContract(unit)} style={({ pressed }) => [styles.structureUnit, pressed && styles.pressed]}><Text numberOfLines={1} style={styles.structureUnitCode}>{unit.unitNumber || unit.code}</Text><Text numberOfLines={1} style={styles.structureUnitName}>{modelLabels[unit.operatingModel]} · {unit.capacity} khách</Text></Pressable>)}</ScrollView>}
-    </View>
+    const activeFloor = group.floors.find((item) => item.id === activeFloorId) ?? group.floors[0]
+    return <View key={group.id} style={styles.structureCard}><View style={styles.structureHeader}><View style={styles.structureIcon}><Ionicons color={palette.evergreen} name="business-outline" size={16} /></View><View style={styles.structureCopy}><Text numberOfLines={1} style={styles.structureTitle}>{group.buildingName}</Text><Text numberOfLines={1} style={styles.structureMeta}>{group.cityName} · {group.areaName}</Text></View><View style={styles.structureSummary}><Text style={styles.structureFloor}>{activeFloor?.name ?? 'Tầng'}</Text><Text style={styles.structureCount}>{activeFloor?.units.length ?? 0} căn</Text></View></View><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.floorTabs} style={styles.structureRailViewport}>{group.floors.map((floor) => <Pressable key={floor.id} onPress={() => onFloorChange(group.id, floor.id)} style={[styles.floorTab, floor.id === activeFloor?.id && styles.floorTabActive]}><Text numberOfLines={1} style={[styles.floorTabText, floor.id === activeFloor?.id && styles.floorTabTextActive]}>{floor.name}</Text></Pressable>)}</ScrollView><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.structureUnitRail} style={styles.structureRailViewport}>{activeFloor?.units.map((unit) => <Pressable key={unit.id} onPress={() => canCreateContract && onContract(unit)} style={styles.structureUnit}><Text numberOfLines={1} style={styles.structureUnitCode}>{unit.unitNumber || unit.code}</Text><Text numberOfLines={2} style={styles.structureUnitName}>{unit.name}</Text></Pressable>)}{!activeFloor?.units.length && <Empty compact icon="home-outline" title="Tầng này chưa có căn" />}</ScrollView></View>
   })}</View>
 }
 
-function ListResults({ rows, canCreateContract, onContract, onSelect }: { rows: UnitRow[]; canCreateContract: boolean; onContract: (unit?: PropertyUnitRecord) => Promise<void>; onSelect: (unit: PropertyUnitRecord) => void }) {
-  if (!rows.length) return <Empty icon="business-outline" title="Chưa có căn phù hợp" />
-  return <View style={styles.list}>{rows.map(({ city, area, building, floor, unit }) => <Pressable key={unit.id} onPress={() => onSelect(unit)} style={({ pressed }) => [styles.unitCard, pressed && styles.pressed]}>
-    <View style={styles.unitIcon}><Ionicons color={palette.evergreen} name="business-outline" size={19} /></View><View style={styles.unitCopy}><Text numberOfLines={1} style={styles.unitName}>{unit.unitNumber || unit.code} · {unit.name}</Text><Text numberOfLines={1} style={styles.unitMeta}>{building.name} · {floor.name} · {city.name}, {area.name}</Text><View style={styles.unitTags}><Text style={styles.tag}>{modelLabels[unit.operatingModel]}</Text><Text style={styles.tag}>{unit.capacity} khách</Text><Text style={styles.tag}>{unit.operationalStatus}</Text></View></View>
-    {canCreateContract && <Pressable onPress={() => void onContract(unit)} style={styles.rowAction}><Ionicons color={palette.evergreen} name="document-text-outline" size={17} /></Pressable>}
-  </Pressable>)}</View>
+function ListResults({ rows, canCreateContract, onContract, onSelect }: { rows: UnitRow[]; canCreateContract: boolean; onContract: (unit: PropertyUnitRecord) => void; onSelect: (unit: PropertyUnitRecord) => void }) {
+  if (!rows.length) return <Empty icon="home-outline" title="Không có căn phù hợp" />
+  return <View style={styles.list}>{rows.map(({ city, area, building, floor, unit }) => <Pressable key={unit.id} onPress={() => onSelect(unit)} style={({ pressed }) => [styles.unitCard, pressed && styles.pressed]}><View style={styles.unitIcon}><Ionicons color={palette.evergreen} name="home-outline" size={17} /></View><View style={styles.unitCopy}><Text style={styles.unitName}>{unit.unitNumber || unit.code} · {unit.name}</Text><Text style={styles.unitMeta}>{city.name} · {area.name} · {building.name} · {floor.name}</Text><View style={styles.unitTags}><Text style={styles.tag}>{modelLabels[unit.operatingModel]}</Text><Text style={styles.tag}>{unit.operationalStatus}</Text><Text style={styles.tag}>{unit.bedroomCount}PN / {unit.capacity} khách</Text></View></View>{canCreateContract && <Pressable onPress={() => onContract(unit)} style={styles.rowAction}><Ionicons color={palette.evergreen} name="document-text-outline" size={17} /></Pressable>}</Pressable>)}</View>
 }
 
 function DensityResults({ rows, onSelect }: { rows: UnitRow[]; onSelect: (unit: PropertyUnitRecord) => void }) {
-  if (!rows.length) return <Empty icon="business-outline" title="Chưa có căn phù hợp" />
-  return <View style={styles.densityGrid}>{rows.map(({ building, floor, unit }) => <Pressable accessibilityLabel={`${unit.name}, ${building.name}, ${floor.name}`} key={unit.id} onPress={() => onSelect(unit)} style={({ pressed }) => [styles.densityUnit, unit.operationalStatus === 'ACTIVE' && styles.densityUnitActive, pressed && styles.pressed]}><Text numberOfLines={1} style={styles.densityUnitCode}>{unit.unitNumber || unit.code}</Text><Text numberOfLines={1} style={styles.densityUnitModel}>{modelLabels[unit.operatingModel]}</Text></Pressable>)}</View>
+  if (!rows.length) return <Empty icon="keypad-outline" title="Không có căn để hiển thị mật độ" />
+  return <View style={styles.densityGrid}>{rows.map(({ unit }) => <Pressable key={unit.id} onPress={() => onSelect(unit)} style={({ pressed }) => [styles.densityUnit, unit.operationalStatus === 'ACTIVE' && styles.densityUnitActive, pressed && styles.pressed]}><Text style={styles.densityUnitCode}>{unit.unitNumber || unit.code}</Text><Text numberOfLines={1} style={styles.densityUnitModel}>{modelLabels[unit.operatingModel]}</Text></Pressable>)}</View>
 }
 
-function UnitModal({ visible, portfolio, graphqlUrl, accessToken, onClose, onSaved }: { visible: boolean; portfolio: PropertyPortfolio; graphqlUrl: string; accessToken: string; onClose: () => void; onSaved: () => void }) {
-  const floors = portfolio.cities.flatMap((city) => city.areas.flatMap((area) => area.buildings.flatMap((building) => building.floors)))
+function Empty({ icon, title, compact = false }: { icon: keyof typeof Ionicons.glyphMap; title: string; compact?: boolean }) {
+  return <View style={[styles.empty, compact && { minHeight: 70 }]}><Ionicons color={palette.sage} name={icon} size={compact ? 20 : 26} /><Text style={styles.emptyTitle}>{title}</Text></View>
+}
+
+function UnitDetail({ visible, unit, onClose }: { visible: boolean; unit?: PropertyUnitRecord; onClose: () => void }) {
+  if (!unit) return null
+  return <Sheet visible={visible} title={unit.unitNumber || unit.code} onClose={onClose}><Input editable={false} label="Tên căn" value={unit.name} /><Input editable={false} label="Mô hình vận hành" value={modelLabels[unit.operatingModel]} /><Input editable={false} label="Trạng thái" value={unit.operationalStatus} /><Input editable={false} label="Sức chứa" value={`${unit.capacity} khách · ${unit.bedroomCount} phòng ngủ · ${unit.bathroomCount} phòng tắm`} /><Input editable={false} label="Giá cơ bản" value={unit.basePricePerNight ? `${Number(unit.basePricePerNight).toLocaleString('vi-VN')} ${unit.currency}/đêm` : 'Chưa thiết lập'} /></Sheet>
+}
+
+function UnitCreate({ visible, portfolio, graphqlUrl, accessToken, onClose, onSaved }: { visible: boolean; portfolio?: PropertyPortfolio; graphqlUrl: string; accessToken: string; onClose: () => void; onSaved: () => void }) {
+  const branches = useMemo(() => portfolio?.branches ?? [], [portfolio])
+  const floors = useMemo(() => (portfolio?.cities ?? []).flatMap((city) => city.areas.flatMap((area) => area.buildings.flatMap((building) => building.floors.map((floor) => ({ id: floor.id, label: `${building.name} - ${floor.name}` }))))), [portfolio])
   const [busy, setBusy] = useState(false); const [error, setError] = useState<string>()
-  const [form, setForm] = useState({ floorId: floors[0]?.id ?? '', branchId: portfolio.branches[0]?.id ?? '', code: '', number: '', name: '', model: 'MANAGEMENT' as PropertyOperatingModel, capacity: '2', price: '' })
-  async function submit() { setBusy(true); setError(undefined); try { await createPropertyUnit(graphqlUrl, accessToken, { floorId: form.floorId, branchId: form.branchId, code: form.code, unitNumber: form.number, name: form.name, operatingModel: form.model, bedroomCount: 1, bathroomCount: 1, capacity: Number(form.capacity), basePricePerNight: form.price || undefined, currency: 'VND' }, mobileFetch); onSaved() } catch (reason) { setError(reason instanceof Error ? reason.message : 'Không tạo được căn.') } finally { setBusy(false) } }
-  return <Sheet visible={visible} title="Thêm căn" onClose={onClose}><Select label="Tầng" value={form.floorId} options={floors.map((item) => ({ value: item.id, label: item.name }))} onChange={(value) => setForm({ ...form, floorId: value })} /><Select label="Chi nhánh" value={form.branchId} options={portfolio.branches.map((item) => ({ value: item.id, label: item.name }))} onChange={(value) => setForm({ ...form, branchId: value })} /><Input label="Mã căn" value={form.code} onChangeText={(value) => setForm({ ...form, code: value.toUpperCase() })} /><Input label="Số căn" value={form.number} onChangeText={(value) => setForm({ ...form, number: value })} /><Input label="Tên căn" value={form.name} onChangeText={(value) => setForm({ ...form, name: value })} /><Select label="Mô hình" value={form.model} options={(Object.keys(modelLabels) as PropertyOperatingModel[]).map((value) => ({ value, label: modelLabels[value] }))} onChange={(value) => setForm({ ...form, model: value as PropertyOperatingModel })} /><Input label="Sức chứa" keyboardType="number-pad" value={form.capacity} onChangeText={(value) => setForm({ ...form, capacity: value })} /><Input label="Giá cơ sở" keyboardType="numeric" value={form.price} onChangeText={(value) => setForm({ ...form, price: value })} />{error && <Text style={styles.error}>{error}</Text>}<Submit busy={busy} disabled={!form.floorId || !form.branchId || !form.code || !form.name} label="Tạo căn" onPress={() => void submit()} /></Sheet>
+  const [form, setForm] = useState({ branchId: branches[0]?.id ?? '', floorId: floors[0]?.id ?? '', code: '', unitNumber: '', name: '', model: 'MANAGEMENT' as PropertyOperatingModel, status: 'ACTIVE', bedrooms: '1', bathrooms: '1', capacity: '2', price: '650000', currency: 'VND' })
+  async function submit() {
+    setBusy(true); setError(undefined)
+    try {
+      await createPropertyUnit(graphqlUrl, accessToken, { floorId: form.floorId, branchId: form.branchId, code: form.code, unitNumber: form.unitNumber || undefined, name: form.name, operatingModel: form.model, bedroomCount: Number(form.bedrooms), bathroomCount: Number(form.bathrooms), capacity: Number(form.capacity), basePricePerNight: form.price, currency: form.currency }, mobileFetch)
+      onSaved()
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Không tạo được căn.') }
+    finally { setBusy(false) }
+  }
+  return <Sheet visible={visible} title="Thêm căn mới" onClose={onClose}><Select label="Chi nhánh" value={form.branchId} options={branches.map((item) => ({ value: item.id, label: item.name }))} onChange={(value) => setForm({ ...form, branchId: value })} /><Select label="Tầng / Tòa" value={form.floorId} options={floors.map((item) => ({ value: item.id, label: item.label }))} onChange={(value) => setForm({ ...form, floorId: value })} /><Input label="Mã căn" value={form.code} onChangeText={(value) => setForm({ ...form, code: value })} /><Input label="Số phòng" value={form.unitNumber} onChangeText={(value) => setForm({ ...form, unitNumber: value })} /><Input label="Tên hiển thị" value={form.name} onChangeText={(value) => setForm({ ...form, name: value })} /><Select label="Mô hình" value={form.model} options={(Object.keys(modelLabels) as PropertyOperatingModel[]).map((value) => ({ value, label: modelLabels[value] }))} onChange={(value) => setForm({ ...form, model: value as PropertyOperatingModel })} /><Input label="Số phòng ngủ" keyboardType="number-pad" value={form.bedrooms} onChangeText={(value) => setForm({ ...form, bedrooms: value })} /><Input label="Số phòng tắm" keyboardType="number-pad" value={form.bathrooms} onChangeText={(value) => setForm({ ...form, bathrooms: value })} /><Input label="Sức chứa (người)" keyboardType="number-pad" value={form.capacity} onChangeText={(value) => setForm({ ...form, capacity: value })} /><Input label="Giá/đêm (VND)" keyboardType="numeric" value={form.price} onChangeText={(value) => setForm({ ...form, price: value })} />{error && <Text style={styles.error}>{error}</Text>}<Submit busy={busy} disabled={!form.code || !form.name || !form.floorId} label="Tạo căn" onPress={() => void submit()} /></Sheet>
 }
 
-function ContractModal({ visible, units, hosts, selected, graphqlUrl, accessToken, canCreateHost, setHosts, onClose, onSaved }: { visible: boolean; units: PropertyUnitRecord[]; hosts: UserDirectoryEntry[]; selected?: PropertyUnitRecord; graphqlUrl: string; accessToken: string; canCreateHost: boolean; setHosts: React.Dispatch<React.SetStateAction<UserDirectoryEntry[]>>; onClose: () => void; onSaved: () => void }) {
+function ContractModal({ visible, units, hosts, selected, setHosts, canCreateHost, graphqlUrl, accessToken, onClose, onSaved }: { visible: boolean; units: PropertyUnitRecord[]; hosts: UserDirectoryEntry[]; selected?: PropertyUnitRecord; setHosts: React.Dispatch<React.SetStateAction<UserDirectoryEntry[]>>; canCreateHost: boolean; graphqlUrl: string; accessToken: string; onClose: () => void; onSaved: () => void }) {
   const [busy, setBusy] = useState(false); const [error, setError] = useState<string>(); const [newHost, setNewHost] = useState(false); const [hostName, setHostName] = useState(''); const [hostEmail, setHostEmail] = useState('')
   const [form, setForm] = useState({ number: DEFAULT_CONTRACT_NUMBER, propertyId: selected?.id ?? units[0]?.id ?? '', hostId: hosts[0]?.profileId ?? '', model: selected?.operatingModel ?? 'MANAGEMENT' as PropertyOperatingModel, start: DEFAULT_TODAY, end: DEFAULT_NEXT_YEAR, amount: '', fee: '15' })
   async function addHost() { setBusy(true); try { const host = await createUserProfile(graphqlUrl, accessToken, { accountType: 'HOST', fullName: hostName, email: hostEmail, reason: 'Tạo chủ nhà trong luồng hợp đồng mobile', idempotencyKey: `${Date.now()}-${Math.random()}` }, mobileFetch); const entry: UserDirectoryEntry = { profileId: host.profileId, accountId: host.accountId, accountType: 'HOST', displayName: host.displayName, email: host.email, contactPhone: host.contactPhone, status: host.status, referenceCode: host.referenceCode, subtype: host.subtype, verificationStatus: host.verificationStatus, joinedOn: host.relevantDate, createdAt: host.createdAt, updatedAt: host.updatedAt }; setHosts((current) => [entry, ...current]); setForm((current) => ({ ...current, hostId: host.profileId })); setNewHost(false) } catch (reason) { setError(reason instanceof Error ? reason.message : 'Không tạo được chủ nhà.') } finally { setBusy(false) } }
@@ -257,6 +296,19 @@ const styles = StyleSheet.create({
   viewControl: { flex: 1, height: 40, borderWidth: 1, borderColor: palette.line, borderRadius: radii.small, backgroundColor: palette.white, flexDirection: 'row', overflow: 'hidden' },
   viewChoice: { flex: 1, alignItems: 'center', justifyContent: 'center' }, viewChoiceActive: { margin: 2, borderRadius: 4, backgroundColor: palette.evergreen },
   locationControl: { minWidth: 0, flex: 1, height: 40, paddingHorizontal: 6, borderWidth: 1, borderColor: palette.line, borderRadius: radii.small, backgroundColor: palette.white, flexDirection: 'row', alignItems: 'center', gap: 3 }, locationControlPressed: { borderColor: palette.sage, backgroundColor: '#F3F8F2' }, locationControlCopy: { minWidth: 0, flex: 1 }, locationControlLabel: { color: palette.muted, fontSize: 9, fontWeight: '600' }, locationControlValue: { marginTop: 2, color: palette.ink, fontSize: 10, fontWeight: '600' },
+  filterPillRow: { marginBottom: 8, flexDirection: 'row' },
+  filterPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radii.small,
+    backgroundColor: '#FFF8EF',
+    borderWidth: 1,
+    borderColor: palette.warning,
+  },
+  filterPillText: { color: palette.warning, fontSize: 10, fontWeight: '700' },
   resultsContent: { flexGrow: 1, gap: 8 },
   notice: { padding: 10, borderRadius: radii.small, backgroundColor: '#E7F0E4', color: palette.evergreen, fontSize: 10 },
   structureList: { gap: 8 }, structureCard: { borderWidth: 1, borderColor: palette.line, borderRadius: radii.small, backgroundColor: palette.white, overflow: 'hidden' }, structureHeader: { minHeight: 52, paddingHorizontal: 9, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: palette.line, backgroundColor: '#F1F6F0', flexDirection: 'row', alignItems: 'center', gap: 8 }, structureIcon: { width: 32, height: 32, borderRadius: 5, backgroundColor: '#DFEBDE', alignItems: 'center', justifyContent: 'center' }, structureCopy: { minWidth: 0, flex: 1 }, structureTitle: { color: palette.ink, fontSize: 11, fontWeight: '700' }, structureMeta: { marginTop: 2, color: palette.muted, fontSize: 9, fontWeight: '600' }, structureSummary: { minWidth: 52, alignItems: 'flex-end', justifyContent: 'center' }, structureFloor: { color: palette.ink, fontSize: 10, fontWeight: '700' }, structureCount: { marginTop: 2, color: palette.muted, fontSize: 9, fontWeight: '600' }, structureRailViewport: { marginHorizontal: 8 }, floorTabs: { minHeight: 40, paddingVertical: 5, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: palette.line, gap: 5 }, floorTab: { width: 68, height: 30, paddingHorizontal: 5, borderRadius: 4, alignItems: 'center', justifyContent: 'center' }, floorTabActive: { backgroundColor: palette.evergreen }, floorTabText: { color: palette.muted, fontSize: 11, fontWeight: '600' }, floorTabTextActive: { color: palette.white, fontWeight: '700' }, structureUnitRail: { minHeight: 72, paddingVertical: 8, gap: 5 }, structureUnit: { width: 68, minHeight: 56, paddingHorizontal: 5, paddingVertical: 6, borderWidth: 1, borderColor: '#CAD9CD', borderRadius: 5, backgroundColor: '#F4F8F3', justifyContent: 'center' }, structureUnitCode: { color: palette.ink, fontSize: 9.5, fontWeight: '700' }, structureUnitName: { marginTop: 3, color: palette.muted, fontSize: 7.5, lineHeight: 10 },
