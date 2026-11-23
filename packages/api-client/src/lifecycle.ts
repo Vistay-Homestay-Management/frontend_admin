@@ -26,6 +26,7 @@ export interface BookingSessionContext {
   idempotencyKey: string
   status: BookingIntentStatus
   payloadFingerprint: string | null
+  currentAttemptId: string | null // Tracks active network submission attempt
   lastError: string | null
   createdAt: number
   updatedAt: number
@@ -92,6 +93,7 @@ export function initBookingSession(
     idempotencyKey,
     status: 'READY',
     payloadFingerprint: null,
+    currentAttemptId: null,
     lastError: null,
     createdAt: now,
     updatedAt: now,
@@ -99,10 +101,33 @@ export function initBookingSession(
 }
 
 export type BookingSessionAction =
-  | { type: 'START_SUBMIT'; payloadFingerprint: string; now?: number }
-  | { type: 'SUBMIT_SUCCESS'; idempotencyKey?: string; now?: number }
-  | { type: 'SUBMIT_ERROR_DETERMINISTIC'; error: string; idempotencyKey?: string; now?: number }
-  | { type: 'SUBMIT_ERROR_UNKNOWN_OUTCOME'; error: string; idempotencyKey?: string; now?: number }
+  | {
+      type: 'START_SUBMIT'
+      payloadFingerprint: string
+      attemptId?: string
+      keyProvider?: SecureRandomProvider
+      now?: number
+    }
+  | {
+      type: 'SUBMIT_SUCCESS'
+      idempotencyKey: string
+      attemptId: string
+      now?: number
+    }
+  | {
+      type: 'SUBMIT_ERROR_DETERMINISTIC'
+      error: string
+      idempotencyKey: string
+      attemptId: string
+      now?: number
+    }
+  | {
+      type: 'SUBMIT_ERROR_UNKNOWN_OUTCOME'
+      error: string
+      idempotencyKey: string
+      attemptId: string
+      now?: number
+    }
   | { type: 'DISMISS_FORM'; now?: number }
   | { type: 'REOPEN_FORM'; now?: number }
   | {
@@ -134,7 +159,7 @@ export function bookingSessionReducer(
         )
       }
 
-      // P0-01 FIX: In UNKNOWN_OUTCOME, payload fingerprint MUST match the original!
+      // In UNKNOWN_OUTCOME, payload fingerprint MUST match the original!
       if (current.status === 'UNKNOWN_OUTCOME') {
         if (!current.payloadFingerprint) {
           throw new Error(
@@ -149,18 +174,24 @@ export function bookingSessionReducer(
         }
       }
 
+      const attemptId = action.attemptId || generateSecureUUID(action.keyProvider)
+
       return {
         ...current,
         status: 'SUBMITTING',
         payloadFingerprint: action.payloadFingerprint,
+        currentAttemptId: attemptId,
         lastError: null,
         updatedAt: ts,
       }
     }
 
     case 'SUBMIT_SUCCESS': {
-      // Guard against stale response from a prior session/attempt
-      if (action.idempotencyKey && action.idempotencyKey !== current.idempotencyKey) {
+      // Guard against stale response from a prior session or previous attempt
+      if (
+        action.idempotencyKey !== current.idempotencyKey ||
+        action.attemptId !== current.currentAttemptId
+      ) {
         return current
       }
 
@@ -178,8 +209,11 @@ export function bookingSessionReducer(
     }
 
     case 'SUBMIT_ERROR_DETERMINISTIC': {
-      // Guard 1: Stale response protection from a prior session/attempt
-      if (action.idempotencyKey && action.idempotencyKey !== current.idempotencyKey) {
+      // Guard 1: Stale response protection (must match both session key and active attempt)
+      if (
+        action.idempotencyKey !== current.idempotencyKey ||
+        action.attemptId !== current.currentAttemptId
+      ) {
         return current
       }
 
@@ -196,35 +230,40 @@ export function bookingSessionReducer(
       return {
         ...current,
         status: 'READY',
+        currentAttemptId: null,
         lastError: action.error,
         updatedAt: ts,
       }
     }
 
     case 'SUBMIT_ERROR_UNKNOWN_OUTCOME': {
-      // Guard 1: Stale response protection from a prior session/attempt
-      if (action.idempotencyKey && action.idempotencyKey !== current.idempotencyKey) {
+      // Guard 1: Stale response protection (must match both session key and active attempt)
+      if (
+        action.idempotencyKey !== current.idempotencyKey ||
+        action.attemptId !== current.currentAttemptId
+      ) {
         return current
       }
 
       // Guard 2: If session already succeeded, ignore late unknown errors
       if (current.status === 'SUCCEEDED') return current
 
-      // Guard 3: Only valid when SUBMITTING or UNKNOWN_OUTCOME
-      if (current.status !== 'SUBMITTING' && current.status !== 'UNKNOWN_OUTCOME') {
+      // Guard 3: Only valid when SUBMITTING
+      if (current.status !== 'SUBMITTING') {
         return current
       }
 
       return {
         ...current,
         status: 'UNKNOWN_OUTCOME',
+        currentAttemptId: null,
         lastError: action.error,
         updatedAt: ts,
       }
     }
 
     case 'DISMISS_FORM': {
-      // P0-01 FIX: Closing the form MUST NOT reset SUCCEEDED to IDLE with the same key!
+      // Closing the form MUST NOT reset SUCCEEDED to IDLE with the same key!
       // In-flight SUBMITTING, UNKNOWN_OUTCOME, and SUCCEEDED preserve their status.
       if (
         current.status === 'SUBMITTING' ||
@@ -244,7 +283,7 @@ export function bookingSessionReducer(
     }
 
     case 'REOPEN_FORM': {
-      // P0-01 & P0-03 FIX: Cannot reopen a SUCCEEDED session
+      // Reopening a completed session with the same key is disallowed
       if (current.status === 'SUCCEEDED') {
         throw new Error(
           'CANNOT_REOPEN_SUCCEEDED_SESSION: Booking session already succeeded. ' +
@@ -265,7 +304,7 @@ export function bookingSessionReducer(
     }
 
     case 'FORCE_ABANDON_PENDING': {
-      // P0-03 FIX: Cannot abandon while request is in-flight!
+      // Cannot abandon while request is in-flight!
       if (current.status === 'SUBMITTING') {
         throw new Error(
           'CANNOT_ABANDON_WHILE_SUBMITTING: Request is currently in-flight. ' +
@@ -273,7 +312,7 @@ export function bookingSessionReducer(
         )
       }
 
-      // P0-04 & P0-03 FIX: In UNKNOWN_OUTCOME, strictly require declaredBy, valid timestamp, RECONCILED_NOT_CREATED, and referenceCheckId
+      // In UNKNOWN_OUTCOME, strictly require declaredBy, valid timestamp, RECONCILED_NOT_CREATED, and referenceCheckId
       if (current.status === 'UNKNOWN_OUTCOME') {
         const proof = action.reconciliationProof
         if (
@@ -296,6 +335,7 @@ export function bookingSessionReducer(
         idempotencyKey: newKey,
         status: 'READY',
         payloadFingerprint: null,
+        currentAttemptId: null,
         lastError: null,
         createdAt: ts,
         updatedAt: ts,
@@ -320,6 +360,7 @@ export function bookingSessionReducer(
         idempotencyKey: newKey,
         status: 'READY',
         payloadFingerprint: null,
+        currentAttemptId: null,
         lastError: null,
         createdAt: ts,
         updatedAt: ts,

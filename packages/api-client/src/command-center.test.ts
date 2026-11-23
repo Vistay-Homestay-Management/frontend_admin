@@ -235,6 +235,7 @@ describe('Idempotency & Lifecycle State Machine (P0-03, P0-08, P0-11)', () => {
     const session = initBookingSession()
     expect(session.status).toBe('READY')
     expect(session.idempotencyKey).toBeDefined()
+    expect(session.currentAttemptId).toBeNull()
     expect(session.payloadFingerprint).toBeNull()
   })
 
@@ -243,11 +244,17 @@ describe('Idempotency & Lifecycle State Machine (P0-03, P0-08, P0-11)', () => {
     session = bookingSessionReducer(session, {
       type: 'START_SUBMIT',
       payloadFingerprint: 'sha256-hash-payload-1',
+      attemptId: 'att-1',
     })
     expect(session.status).toBe('SUBMITTING')
+    expect(session.currentAttemptId).toBe('att-1')
     expect(session.payloadFingerprint).toBe('sha256-hash-payload-1')
 
-    session = bookingSessionReducer(session, { type: 'SUBMIT_SUCCESS' })
+    session = bookingSessionReducer(session, {
+      type: 'SUBMIT_SUCCESS',
+      idempotencyKey: session.idempotencyKey,
+      attemptId: 'att-1',
+    })
     expect(session.status).toBe('SUCCEEDED')
   })
 
@@ -258,13 +265,17 @@ describe('Idempotency & Lifecycle State Machine (P0-03, P0-08, P0-11)', () => {
     session = bookingSessionReducer(session, {
       type: 'START_SUBMIT',
       payloadFingerprint: 'sha256-hash-payload-1',
+      attemptId: 'att-1',
     })
     session = bookingSessionReducer(session, {
       type: 'SUBMIT_ERROR_DETERMINISTIC',
       error: '400 Bad Request: Invalid guest phone',
+      idempotencyKey: originalKey,
+      attemptId: 'att-1',
     })
 
     expect(session.status).toBe('READY')
+    expect(session.currentAttemptId).toBeNull()
     expect(session.lastError).toBe('400 Bad Request: Invalid guest phone')
     expect(session.idempotencyKey).toBe(originalKey)
   })
@@ -278,14 +289,18 @@ describe('Idempotency & Lifecycle State Machine (P0-03, P0-08, P0-11)', () => {
     session = bookingSessionReducer(session, {
       type: 'START_SUBMIT',
       payloadFingerprint: payloadHash,
+      attemptId: 'att-1',
     })
 
     // 2. Gateway timeout / Network drop
     session = bookingSessionReducer(session, {
       type: 'SUBMIT_ERROR_UNKNOWN_OUTCOME',
       error: '504 Gateway Timeout: Response not received',
+      idempotencyKey: originalKey,
+      attemptId: 'att-1',
     })
     expect(session.status).toBe('UNKNOWN_OUTCOME')
+    expect(session.currentAttemptId).toBeNull()
     expect(session.idempotencyKey).toBe(originalKey)
     expect(session.payloadFingerprint).toBe(payloadHash)
 
@@ -304,12 +319,18 @@ describe('Idempotency & Lifecycle State Machine (P0-03, P0-08, P0-11)', () => {
     session = bookingSessionReducer(session, {
       type: 'START_SUBMIT',
       payloadFingerprint: payloadHash,
+      attemptId: 'att-2',
     })
     expect(session.status).toBe('SUBMITTING')
+    expect(session.currentAttemptId).toBe('att-2')
     expect(session.idempotencyKey).toBe(originalKey)
 
     // 6. Backend confirms replay succeeded
-    session = bookingSessionReducer(session, { type: 'SUBMIT_SUCCESS' })
+    session = bookingSessionReducer(session, {
+      type: 'SUBMIT_SUCCESS',
+      idempotencyKey: originalKey,
+      attemptId: 'att-2',
+    })
     expect(session.status).toBe('SUCCEEDED')
   })
 
@@ -321,10 +342,13 @@ describe('Idempotency & Lifecycle State Machine (P0-03, P0-08, P0-11)', () => {
     session = bookingSessionReducer(session, {
       type: 'START_SUBMIT',
       payloadFingerprint: payloadOriginal,
+      attemptId: 'att-1',
     })
     session = bookingSessionReducer(session, {
       type: 'SUBMIT_ERROR_UNKNOWN_OUTCOME',
       error: '504 Gateway Timeout',
+      idempotencyKey: session.idempotencyKey,
+      attemptId: 'att-1',
     })
 
     // Attempting to retry with a modified payload must throw
@@ -332,6 +356,7 @@ describe('Idempotency & Lifecycle State Machine (P0-03, P0-08, P0-11)', () => {
       bookingSessionReducer(session, {
         type: 'START_SUBMIT',
         payloadFingerprint: payloadModified,
+        attemptId: 'att-2',
       })
     ).toThrow(/IDEMPOTENCY_PAYLOAD_MISMATCH/)
   })
@@ -343,8 +368,13 @@ describe('Idempotency & Lifecycle State Machine (P0-03, P0-08, P0-11)', () => {
     session = bookingSessionReducer(session, {
       type: 'START_SUBMIT',
       payloadFingerprint: 'payload-hash-1',
+      attemptId: 'att-1',
     })
-    session = bookingSessionReducer(session, { type: 'SUBMIT_SUCCESS' })
+    session = bookingSessionReducer(session, {
+      type: 'SUBMIT_SUCCESS',
+      idempotencyKey: originalKey,
+      attemptId: 'att-1',
+    })
     expect(session.status).toBe('SUCCEEDED')
 
     // 1. DISMISS_FORM must NOT reset SUCCEEDED to IDLE!
@@ -372,10 +402,13 @@ describe('Idempotency & Lifecycle State Machine (P0-03, P0-08, P0-11)', () => {
     session = bookingSessionReducer(session, {
       type: 'START_SUBMIT',
       payloadFingerprint: originalPayload,
+      attemptId: 'att-1',
     })
     session = bookingSessionReducer(session, {
       type: 'SUBMIT_ERROR_UNKNOWN_OUTCOME',
       error: '504 Gateway Timeout',
+      idempotencyKey: originalKey,
+      attemptId: 'att-1',
     })
     expect(session.status).toBe('UNKNOWN_OUTCOME')
 
@@ -383,6 +416,8 @@ describe('Idempotency & Lifecycle State Machine (P0-03, P0-08, P0-11)', () => {
     session = bookingSessionReducer(session, {
       type: 'SUBMIT_ERROR_DETERMINISTIC',
       error: 'Late 400 Bad Request arriving after 504',
+      idempotencyKey: originalKey,
+      attemptId: 'att-1',
     })
 
     // Must remain UNKNOWN_OUTCOME and NOT revert to READY!
@@ -391,11 +426,67 @@ describe('Idempotency & Lifecycle State Machine (P0-03, P0-08, P0-11)', () => {
     expect(session.payloadFingerprint).toBe(originalPayload)
   })
 
+  it('CRITICAL P0: ignores stale response from previous attempt within the same session across retries', () => {
+    let session = initBookingSession()
+    const sessionKey = session.idempotencyKey
+    const payloadHash = 'sha256-booking-attempt'
+
+    // 1. Attempt 1 starts with attemptId 'attempt-01'
+    session = bookingSessionReducer(session, {
+      type: 'START_SUBMIT',
+      payloadFingerprint: payloadHash,
+      attemptId: 'attempt-01',
+    })
+    expect(session.status).toBe('SUBMITTING')
+    expect(session.currentAttemptId).toBe('attempt-01')
+
+    // 2. Attempt 1 times out -> transitions to UNKNOWN_OUTCOME
+    session = bookingSessionReducer(session, {
+      type: 'SUBMIT_ERROR_UNKNOWN_OUTCOME',
+      error: '504 Gateway Timeout',
+      idempotencyKey: sessionKey,
+      attemptId: 'attempt-01',
+    })
+    expect(session.status).toBe('UNKNOWN_OUTCOME')
+    expect(session.currentAttemptId).toBeNull()
+
+    // 3. User retries same payload -> Attempt 2 starts with attemptId 'attempt-02'
+    session = bookingSessionReducer(session, {
+      type: 'START_SUBMIT',
+      payloadFingerprint: payloadHash,
+      attemptId: 'attempt-02',
+    })
+    expect(session.status).toBe('SUBMITTING')
+    expect(session.currentAttemptId).toBe('attempt-02')
+
+    // 4. Late deterministic error (400 Bad Request) from Attempt 1 arrives!
+    // It carries the SAME idempotencyKey, but OLD attemptId ('attempt-01')
+    session = bookingSessionReducer(session, {
+      type: 'SUBMIT_ERROR_DETERMINISTIC',
+      error: 'Late 400 Bad Request from attempt 1',
+      idempotencyKey: sessionKey,
+      attemptId: 'attempt-01',
+    })
+
+    // MUST NOT revert session to READY! Attempt 2 is still actively in-flight!
+    expect(session.status).toBe('SUBMITTING')
+    expect(session.currentAttemptId).toBe('attempt-02')
+
+    // 5. Attempt 2 finishes successfully with matching attemptId 'attempt-02'
+    session = bookingSessionReducer(session, {
+      type: 'SUBMIT_SUCCESS',
+      idempotencyKey: sessionKey,
+      attemptId: 'attempt-02',
+    })
+    expect(session.status).toBe('SUCCEEDED')
+  })
+
   it('dismissing form during SUBMITTING preserves SUBMITTING status', () => {
     let session = initBookingSession()
     session = bookingSessionReducer(session, {
       type: 'START_SUBMIT',
       payloadFingerprint: 'payload-hash',
+      attemptId: 'att-1',
     })
     expect(session.status).toBe('SUBMITTING')
 
@@ -408,6 +499,7 @@ describe('Idempotency & Lifecycle State Machine (P0-03, P0-08, P0-11)', () => {
     session = bookingSessionReducer(session, {
       type: 'START_SUBMIT',
       payloadFingerprint: 'payload-hash',
+      attemptId: 'att-1',
     })
 
     expect(() =>
@@ -429,8 +521,13 @@ describe('Idempotency & Lifecycle State Machine (P0-03, P0-08, P0-11)', () => {
     session = bookingSessionReducer(session, {
       type: 'START_SUBMIT',
       payloadFingerprint: 'payload-hash',
+      attemptId: 'att-1',
     })
-    session = bookingSessionReducer(session, { type: 'SUBMIT_SUCCESS' })
+    session = bookingSessionReducer(session, {
+      type: 'SUBMIT_SUCCESS',
+      idempotencyKey: session.idempotencyKey,
+      attemptId: 'att-1',
+    })
 
     expect(() => bookingSessionReducer(session, { type: 'REOPEN_FORM' })).toThrow(
       /CANNOT_REOPEN_SUCCEEDED_SESSION/
@@ -442,13 +539,21 @@ describe('Idempotency & Lifecycle State Machine (P0-03, P0-08, P0-11)', () => {
     session = bookingSessionReducer(session, {
       type: 'START_SUBMIT',
       payloadFingerprint: 'payload-hash',
+      attemptId: 'att-1',
     })
-    session = bookingSessionReducer(session, { type: 'SUBMIT_SUCCESS' })
+    session = bookingSessionReducer(session, {
+      type: 'SUBMIT_SUCCESS',
+      idempotencyKey: session.idempotencyKey,
+      attemptId: 'att-1',
+    })
+    expect(session.status).toBe('SUCCEEDED')
 
     // Late deterministic error
     session = bookingSessionReducer(session, {
       type: 'SUBMIT_ERROR_DETERMINISTIC',
       error: 'Late network error',
+      idempotencyKey: session.idempotencyKey,
+      attemptId: 'att-1',
     })
     expect(session.status).toBe('SUCCEEDED')
 
@@ -456,6 +561,8 @@ describe('Idempotency & Lifecycle State Machine (P0-03, P0-08, P0-11)', () => {
     session = bookingSessionReducer(session, {
       type: 'SUBMIT_ERROR_UNKNOWN_OUTCOME',
       error: 'Late timeout error',
+      idempotencyKey: session.idempotencyKey,
+      attemptId: 'att-1',
     })
     expect(session.status).toBe('SUCCEEDED')
   })
@@ -467,10 +574,15 @@ describe('Idempotency & Lifecycle State Machine (P0-03, P0-08, P0-11)', () => {
     session = bookingSessionReducer(session, {
       type: 'START_SUBMIT',
       payloadFingerprint: 'payload-old',
+      attemptId: 'att-old',
     })
 
     // Previous session succeeded and user initializes a new session
-    session = bookingSessionReducer(session, { type: 'SUBMIT_SUCCESS' })
+    session = bookingSessionReducer(session, {
+      type: 'SUBMIT_SUCCESS',
+      idempotencyKey: oldKey,
+      attemptId: 'att-old',
+    })
     session = bookingSessionReducer(session, { type: 'INIT_NEW_SESSION' })
     const newKey = session.idempotencyKey
     expect(newKey).not.toBe(oldKey)
@@ -480,6 +592,7 @@ describe('Idempotency & Lifecycle State Machine (P0-03, P0-08, P0-11)', () => {
     session = bookingSessionReducer(session, {
       type: 'SUBMIT_SUCCESS',
       idempotencyKey: oldKey,
+      attemptId: 'att-old',
     })
     expect(session.status).toBe('READY')
     expect(session.idempotencyKey).toBe(newKey)
@@ -489,6 +602,7 @@ describe('Idempotency & Lifecycle State Machine (P0-03, P0-08, P0-11)', () => {
       type: 'SUBMIT_ERROR_DETERMINISTIC',
       error: 'Stale network error',
       idempotencyKey: oldKey,
+      attemptId: 'att-old',
     })
     expect(session.status).toBe('READY')
     expect(session.idempotencyKey).toBe(newKey)
@@ -501,10 +615,13 @@ describe('Idempotency & Lifecycle State Machine (P0-03, P0-08, P0-11)', () => {
     session = bookingSessionReducer(session, {
       type: 'START_SUBMIT',
       payloadFingerprint: 'hash-1',
+      attemptId: 'att-1',
     })
     session = bookingSessionReducer(session, {
       type: 'SUBMIT_ERROR_UNKNOWN_OUTCOME',
       error: 'Network drop',
+      idempotencyKey: firstKey,
+      attemptId: 'att-1',
     })
 
     // 1. Attempting to abandon with RECONCILED_MANUALLY_CONFIRMED throws
