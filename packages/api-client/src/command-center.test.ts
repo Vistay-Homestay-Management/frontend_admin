@@ -211,7 +211,7 @@ describe('Business Timezone Utilities (P0-04, P0-10)', () => {
 describe('Idempotency & Lifecycle State Machine (P0-03, P0-08, P0-11)', () => {
   it('generates secure UUID and rejects insecure Math.random or invalid format', () => {
     const key = generateSecureUUID()
-    expect(key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
+    expect(key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
 
     const customSecureProvider = () => '11111111-2222-4333-8444-555555555555'
     expect(generateSecureUUID(customSecureProvider)).toBe('11111111-2222-4333-8444-555555555555')
@@ -219,6 +219,16 @@ describe('Idempotency & Lifecycle State Machine (P0-03, P0-08, P0-11)', () => {
     // Rejects non-UUID format provider output
     const badProvider = () => 'not-a-valid-uuid-string'
     expect(() => generateSecureUUID(badProvider)).toThrow(/INVALID_SECURE_UUID/)
+  })
+
+  it('strictly rejects UUIDv1 or invalid version UUIDs from custom provider', () => {
+    // UUIDv1 has '1' at version position
+    const v1Provider = () => '6ba7b810-9dad-11d1-80b4-00c04fd430c8'
+    expect(() => generateSecureUUID(v1Provider)).toThrow(/INVALID_SECURE_UUID/)
+
+    // UUIDv5 has '5' at version position
+    const v5Provider = () => '886313e1-3b8a-5372-9b90-0c9aee199e5d'
+    expect(() => generateSecureUUID(v5Provider)).toThrow(/INVALID_SECURE_UUID/)
   })
 
   it('initializes a clean session in READY state with a secure key', () => {
@@ -326,6 +336,61 @@ describe('Idempotency & Lifecycle State Machine (P0-03, P0-08, P0-11)', () => {
     ).toThrow(/IDEMPOTENCY_PAYLOAD_MISMATCH/)
   })
 
+  it('P0-01: SUCCEEDED session preserves status on DISMISS_FORM and prevents REOPEN_FORM with same key', () => {
+    let session = initBookingSession()
+    const originalKey = session.idempotencyKey
+
+    session = bookingSessionReducer(session, {
+      type: 'START_SUBMIT',
+      payloadFingerprint: 'payload-hash-1',
+    })
+    session = bookingSessionReducer(session, { type: 'SUBMIT_SUCCESS' })
+    expect(session.status).toBe('SUCCEEDED')
+
+    // 1. DISMISS_FORM must NOT reset SUCCEEDED to IDLE!
+    session = bookingSessionReducer(session, { type: 'DISMISS_FORM' })
+    expect(session.status).toBe('SUCCEEDED')
+    expect(session.idempotencyKey).toBe(originalKey)
+
+    // 2. REOPEN_FORM must throw and cannot be reused
+    expect(() => bookingSessionReducer(session, { type: 'REOPEN_FORM' })).toThrow(
+      /CANNOT_REOPEN_SUCCEEDED_SESSION/
+    )
+
+    // 3. User must explicitly initialize a new session to obtain a fresh key
+    session = bookingSessionReducer(session, { type: 'INIT_NEW_SESSION' })
+    expect(session.status).toBe('READY')
+    expect(session.idempotencyKey).not.toBe(originalKey)
+    expect(session.payloadFingerprint).toBeNull()
+  })
+
+  it('P0-02: late deterministic error arriving in UNKNOWN_OUTCOME must NOT revert session to READY', () => {
+    let session = initBookingSession()
+    const originalKey = session.idempotencyKey
+    const originalPayload = 'canonical-sha256-payload'
+
+    session = bookingSessionReducer(session, {
+      type: 'START_SUBMIT',
+      payloadFingerprint: originalPayload,
+    })
+    session = bookingSessionReducer(session, {
+      type: 'SUBMIT_ERROR_UNKNOWN_OUTCOME',
+      error: '504 Gateway Timeout',
+    })
+    expect(session.status).toBe('UNKNOWN_OUTCOME')
+
+    // Late deterministic error arriving from a timed-out attempt or network race
+    session = bookingSessionReducer(session, {
+      type: 'SUBMIT_ERROR_DETERMINISTIC',
+      error: 'Late 400 Bad Request arriving after 504',
+    })
+
+    // Must remain UNKNOWN_OUTCOME and NOT revert to READY!
+    expect(session.status).toBe('UNKNOWN_OUTCOME')
+    expect(session.idempotencyKey).toBe(originalKey)
+    expect(session.payloadFingerprint).toBe(originalPayload)
+  })
+
   it('dismissing form during SUBMITTING preserves SUBMITTING status', () => {
     let session = initBookingSession()
     session = bookingSessionReducer(session, {
@@ -393,6 +458,40 @@ describe('Idempotency & Lifecycle State Machine (P0-03, P0-08, P0-11)', () => {
       error: 'Late timeout error',
     })
     expect(session.status).toBe('SUCCEEDED')
+  })
+
+  it('ignores stale response from previous session after INIT_NEW_SESSION', () => {
+    let session = initBookingSession()
+    const oldKey = session.idempotencyKey
+
+    session = bookingSessionReducer(session, {
+      type: 'START_SUBMIT',
+      payloadFingerprint: 'payload-old',
+    })
+
+    // Previous session succeeded and user initializes a new session
+    session = bookingSessionReducer(session, { type: 'SUBMIT_SUCCESS' })
+    session = bookingSessionReducer(session, { type: 'INIT_NEW_SESSION' })
+    const newKey = session.idempotencyKey
+    expect(newKey).not.toBe(oldKey)
+    expect(session.status).toBe('READY')
+
+    // Stale success response arriving with old key
+    session = bookingSessionReducer(session, {
+      type: 'SUBMIT_SUCCESS',
+      idempotencyKey: oldKey,
+    })
+    expect(session.status).toBe('READY')
+    expect(session.idempotencyKey).toBe(newKey)
+
+    // Stale error arriving with old key
+    session = bookingSessionReducer(session, {
+      type: 'SUBMIT_ERROR_DETERMINISTIC',
+      error: 'Stale network error',
+      idempotencyKey: oldKey,
+    })
+    expect(session.status).toBe('READY')
+    expect(session.idempotencyKey).toBe(newKey)
   })
 
   it('strictly guards FORCE_ABANDON_PENDING requiring verified reconciliation proof', () => {

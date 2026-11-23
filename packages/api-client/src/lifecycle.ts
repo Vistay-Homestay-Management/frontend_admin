@@ -7,6 +7,13 @@ export type BookingIntentStatus =
 
 export type ReconciliationStatus = 'RECONCILED_NOT_CREATED' | 'RECONCILED_MANUALLY_CONFIRMED'
 
+/**
+ * Client-side audit declaration for booking idempotency reconciliation.
+ *
+ * NOTE: In Phase 0, this serves as a strongly-typed data structure and frontend audit record.
+ * Authoritative verification of referenceCheckId and server-side state confirmation
+ * is enforced during backend integration.
+ */
 export interface ReconciliationDeclaration {
   declaredBy: string
   reconciliationStatus: ReconciliationStatus
@@ -27,7 +34,11 @@ export interface BookingSessionContext {
 
 export type SecureRandomProvider = () => string
 
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+/**
+ * Strict UUIDv4 regex.
+ * Format: 8-4-4-4-12 hex chars with version 4 at pos 13 and variant [89ab] at pos 17.
+ */
+const UUIDV4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 /**
  * Creates and validates a cryptographically secure UUIDv4.
@@ -38,7 +49,7 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-
  *
  * Throws an Error if:
  * - No secure random source is available (NEVER falls back to Math.random).
- * - The provider returns a value that does not match UUID regex.
+ * - The provider returns a value that does not match strict UUIDv4 regex.
  */
 export function generateSecureUUID(provider?: SecureRandomProvider): string {
   let key: string | undefined
@@ -60,7 +71,7 @@ export function generateSecureUUID(provider?: SecureRandomProvider): string {
     )
   }
 
-  if (!UUID_REGEX.test(key)) {
+  if (!UUIDV4_REGEX.test(key)) {
     throw new Error(
       `INVALID_SECURE_UUID: The generated random key "${key}" is not a valid UUIDv4 string.`
     )
@@ -89,9 +100,9 @@ export function initBookingSession(
 
 export type BookingSessionAction =
   | { type: 'START_SUBMIT'; payloadFingerprint: string; now?: number }
-  | { type: 'SUBMIT_SUCCESS'; now?: number }
-  | { type: 'SUBMIT_ERROR_DETERMINISTIC'; error: string; now?: number }
-  | { type: 'SUBMIT_ERROR_UNKNOWN_OUTCOME'; error: string; now?: number }
+  | { type: 'SUBMIT_SUCCESS'; idempotencyKey?: string; now?: number }
+  | { type: 'SUBMIT_ERROR_DETERMINISTIC'; error: string; idempotencyKey?: string; now?: number }
+  | { type: 'SUBMIT_ERROR_UNKNOWN_OUTCOME'; error: string; idempotencyKey?: string; now?: number }
   | { type: 'DISMISS_FORM'; now?: number }
   | { type: 'REOPEN_FORM'; now?: number }
   | {
@@ -148,6 +159,11 @@ export function bookingSessionReducer(
     }
 
     case 'SUBMIT_SUCCESS': {
+      // Guard against stale response from a prior session/attempt
+      if (action.idempotencyKey && action.idempotencyKey !== current.idempotencyKey) {
+        return current
+      }
+
       if (current.status !== 'SUBMITTING' && current.status !== 'UNKNOWN_OUTCOME') {
         throw new Error(
           `Cannot mark success in state "${current.status}". Expected "SUBMITTING" or "UNKNOWN_OUTCOME".`
@@ -162,8 +178,20 @@ export function bookingSessionReducer(
     }
 
     case 'SUBMIT_ERROR_DETERMINISTIC': {
-      // Late arrival guard: if already succeeded, ignore late errors
+      // Guard 1: Stale response protection from a prior session/attempt
+      if (action.idempotencyKey && action.idempotencyKey !== current.idempotencyKey) {
+        return current
+      }
+
+      // Guard 2: If session already succeeded, ignore late errors
       if (current.status === 'SUCCEEDED') return current
+
+      // Guard 3 (P0-02): If session is in UNKNOWN_OUTCOME, a late deterministic error
+      // MUST NOT reset session back to READY without formal reconciliation!
+      if (current.status === 'UNKNOWN_OUTCOME') return current
+
+      // Guard 4: Only transitions to READY if currently SUBMITTING
+      if (current.status !== 'SUBMITTING') return current
 
       return {
         ...current,
@@ -174,8 +202,18 @@ export function bookingSessionReducer(
     }
 
     case 'SUBMIT_ERROR_UNKNOWN_OUTCOME': {
-      // Late arrival guard: if already succeeded, ignore late unknown errors
+      // Guard 1: Stale response protection from a prior session/attempt
+      if (action.idempotencyKey && action.idempotencyKey !== current.idempotencyKey) {
+        return current
+      }
+
+      // Guard 2: If session already succeeded, ignore late unknown errors
       if (current.status === 'SUCCEEDED') return current
+
+      // Guard 3: Only valid when SUBMITTING or UNKNOWN_OUTCOME
+      if (current.status !== 'SUBMITTING' && current.status !== 'UNKNOWN_OUTCOME') {
+        return current
+      }
 
       return {
         ...current,
@@ -186,8 +224,13 @@ export function bookingSessionReducer(
     }
 
     case 'DISMISS_FORM': {
-      // P0-02 FIX: Do not wipe in-flight SUBMITTING or UNKNOWN_OUTCOME!
-      if (current.status === 'SUBMITTING' || current.status === 'UNKNOWN_OUTCOME') {
+      // P0-01 FIX: Closing the form MUST NOT reset SUCCEEDED to IDLE with the same key!
+      // In-flight SUBMITTING, UNKNOWN_OUTCOME, and SUCCEEDED preserve their status.
+      if (
+        current.status === 'SUBMITTING' ||
+        current.status === 'UNKNOWN_OUTCOME' ||
+        current.status === 'SUCCEEDED'
+      ) {
         return {
           ...current,
           updatedAt: ts,
@@ -201,7 +244,7 @@ export function bookingSessionReducer(
     }
 
     case 'REOPEN_FORM': {
-      // P0-03 FIX: Reopening a completed session with the same key is disallowed
+      // P0-01 & P0-03 FIX: Cannot reopen a SUCCEEDED session
       if (current.status === 'SUCCEEDED') {
         throw new Error(
           'CANNOT_REOPEN_SUCCEEDED_SESSION: Booking session already succeeded. ' +
@@ -230,18 +273,20 @@ export function bookingSessionReducer(
         )
       }
 
-      // P0-04 FIX: In UNKNOWN_OUTCOME, strictly require declaredBy, RECONCILED_NOT_CREATED, and referenceCheckId
+      // P0-04 & P0-03 FIX: In UNKNOWN_OUTCOME, strictly require declaredBy, valid timestamp, RECONCILED_NOT_CREATED, and referenceCheckId
       if (current.status === 'UNKNOWN_OUTCOME') {
         const proof = action.reconciliationProof
         if (
           !proof ||
           proof.reconciliationStatus !== 'RECONCILED_NOT_CREATED' ||
           !proof.declaredBy?.trim() ||
-          !proof.referenceCheckId?.trim()
+          !proof.referenceCheckId?.trim() ||
+          typeof proof.verifiedAt !== 'number' ||
+          proof.verifiedAt <= 0
         ) {
           throw new Error(
             'CANNOT_ABANDON_WITHOUT_RECONCILIATION: Abandoning an UNKNOWN_OUTCOME booking intent ' +
-              'requires verified proof (RECONCILED_NOT_CREATED), declaredBy, and a referenceCheckId.'
+              'requires verified proof (RECONCILED_NOT_CREATED), declaredBy, valid verifiedAt, and a referenceCheckId.'
           )
         }
       }
