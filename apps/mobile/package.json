@@ -30,6 +30,7 @@
     "start": "expo start",
     "android": "expo run:android",
     "android:dev": "powershell -ExecutionPolicy Bypass -File scripts/android-dev.ps1",
+    "android:dev:lan": "powershell -ExecutionPolicy Bypass -File scripts/android-dev.ps1 -Lan",
     "android:build:debug": "powershell -ExecutionPolicy Bypass -File scripts/android-build-debug.ps1",
     "android:build:debug:refresh": "powershell -ExecutionPolicy Bypass -File scripts/android-build-debug.ps1 -RefreshNativeCache",
     "android:install:debug": "powershell -ExecutionPolicy Bypass -File scripts/android-build-debug.ps1 -Install",

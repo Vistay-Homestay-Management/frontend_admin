@@ -1,10 +1,39 @@
 [CmdletBinding()]
 param(
-  [int]$BackendPort = 0
+  [int]$BackendPort = 0,
+  [switch]$Lan,
+  [string]$PublicHost
 )
 
 $ErrorActionPreference = 'Stop'
 $mobileRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+
+if ($Lan) {
+  if ([string]::IsNullOrWhiteSpace($PublicHost)) {
+    $defaultRoute = Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
+      Where-Object { $_.State -eq 'Alive' } |
+      Sort-Object RouteMetric, InterfaceMetric |
+      Select-Object -First 1
+    if (-not $defaultRoute) {
+      throw 'No active IPv4 default route was found. Pass -PublicHost with this workstation LAN address.'
+    }
+    $lanAddress = Get-NetIPAddress -AddressFamily IPv4 -InterfaceIndex $defaultRoute.InterfaceIndex -ErrorAction SilentlyContinue |
+      Where-Object { $_.AddressState -eq 'Preferred' -and $_.IPAddress -notlike '169.254.*' } |
+      Select-Object -First 1
+    if (-not $lanAddress) {
+      throw 'No preferred IPv4 address was found. Pass -PublicHost with this workstation LAN address.'
+    }
+    $PublicHost = $lanAddress.IPAddress
+  }
+
+  $publicBaseUrl = "http://$PublicHost"
+  $env:REACT_NATIVE_PACKAGER_HOSTNAME = $PublicHost
+  $env:EXPO_PUBLIC_GRAPHQL_URL = "$publicBaseUrl/graphql"
+  $env:EXPO_PUBLIC_AUTH_API_URL = "$publicBaseUrl/api/v1/backoffice/accounts"
+  $env:EXPO_PUBLIC_OIDC_ISSUER = "$publicBaseUrl/realms/vistay-backoffice"
+  Write-Host "LAN server mode: Metro http://${PublicHost}:8081"
+  Write-Host "Backoffice edge: $publicBaseUrl"
+}
 
 if (-not (Get-Command adb -ErrorAction SilentlyContinue)) {
   throw 'adb is not available on PATH.'
@@ -66,7 +95,11 @@ $reverseJob = Start-Job -ArgumentList $BackendPort -ScriptBlock {
 
 try {
   Set-Location $mobileRoot
-  npx expo start --dev-client --localhost --port 8081
+  if ($Lan) {
+    npx expo start --dev-client --lan --port 8081
+  } else {
+    npx expo start --dev-client --localhost --port 8081
+  }
 } finally {
   Stop-Job -Job $reverseJob -ErrorAction SilentlyContinue
   Remove-Job -Job $reverseJob -Force -ErrorAction SilentlyContinue

@@ -50,6 +50,13 @@ npm ci
 npm run dev:web
 npm run dev:mobile
 
+# Expose Metro and EXPO_PUBLIC endpoints to other devices on the LAN.
+# The script selects the IPv4 address behind the active default route.
+npm run android:dev:lan --workspace @vistay/admin-mobile
+
+# Override address selection when the workstation has VPN/virtual adapters.
+npm run android:dev:lan --workspace @vistay/admin-mobile -- -PublicHost 192.168.1.50
+
 npm run typecheck
 npm run lint
 npm test
@@ -88,3 +95,10 @@ for observation freshness, session-scoped mutation guards, and SCRUM-541
 acceptance; see [Booking mobile spec](docs/mobile/booking.md) and
 [Pricing mobile spec](docs/mobile/pricing.md) for blocked-gate handoffs.
 Mobile tests are discovered with `npm run test:mobile`; the root build remains Web-only.
+
+LAN mode makes Metro listen on all interfaces while advertising the selected
+workstation address. `EXPO_PUBLIC_GRAPHQL_URL`, `EXPO_PUBLIC_AUTH_API_URL`, and
+`EXPO_PUBLIC_OIDC_ISSUER` use that address automatically. Client URLs must use
+the real LAN address rather than `0.0.0.0`; `0.0.0.0` is only the server bind
+address. The workstation firewall must allow inbound TCP 80 and 8081 from the
+trusted local network.
