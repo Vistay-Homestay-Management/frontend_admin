@@ -2972,6 +2972,6 @@ export async function transitionAdminBooking(
 }
 
 
-export * from './navigation.js'
-export * from './date.js'
-export * from './lifecycle.js'
+export * from './navigation'
+export * from './date'
+export * from './lifecycle'
