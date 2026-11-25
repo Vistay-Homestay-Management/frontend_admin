@@ -89,7 +89,7 @@ export function OverviewActionHub({
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <SectionHeading
-          title="Tác vụ cần xử lý (Action Required)"
+          title="Tác vụ cần xử lý"
           caption="Booking đang chờ xác nhận cần duyệt ngay."
         />
         {pendingBookings.length > 0 && (

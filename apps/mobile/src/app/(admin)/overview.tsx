@@ -195,8 +195,8 @@ export default function OverviewScreen() {
         <View style={styles.stickyRowSpacing}>
           <Segmented
             options={[
-              { label: 'Hệ thống (System)', value: 'SYSTEM' },
-              { label: 'Cá nhân (Personal)', value: 'PERSONAL' },
+              { label: 'Hệ thống', value: 'SYSTEM' },
+              { label: 'Cá nhân', value: 'PERSONAL' },
             ]}
             value={view}
             onChange={setView}
@@ -269,7 +269,7 @@ export default function OverviewScreen() {
             {/* Finance Summary (Only for SYSTEM view with finance:read) */}
             {view === 'SYSTEM' && currentData?.finance && canReadFinance && (
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Tài chính (Finance Governance)</Text>
+                <Text style={styles.sectionTitle}>Tài chính</Text>
                 <Surface>
                   <FinanceRow
                     label="Tổng doanh thu ghi nhận"

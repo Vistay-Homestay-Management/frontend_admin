@@ -41,7 +41,7 @@ export function OverviewAssetHealth({ property, loading }: OverviewAssetHealthPr
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <SectionHeading
-          title="Sức khỏe tài sản (Asset Health)"
+          title="Sức khỏe tài sản"
           caption="Tình trạng vận hành của danh mục căn và căn cần xử lý."
         />
         <Pressable
