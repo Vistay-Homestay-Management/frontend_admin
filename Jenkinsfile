@@ -5,6 +5,12 @@ pipeline {
         skipDefaultCheckout(true)
         timestamps()
         disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '20', artifactNumToKeepStr: '10'))
+    }
+
+    parameters {
+        booleanParam(name: 'BUILD_WEB_IMAGE', defaultValue: true, description: 'Build the admin web Docker image locally')
+        booleanParam(name: 'BUILD_ANDROID_APK', defaultValue: true, description: 'Build and archive the internal Android APK')
     }
 
     environment {
@@ -19,7 +25,8 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                checkout([
+                script {
+                    def checkoutVars = checkout([
                     $class: 'GitSCM',
                     branches: scm.branches,
                     doGenerateSubmoduleConfigurations: false,
@@ -32,7 +39,9 @@ pipeline {
                         trackingSubmodules: false
                     ]],
                     userRemoteConfigs: scm.userRemoteConfigs
-                ])
+                    ])
+                    env.GIT_BRANCH = checkoutVars.GIT_BRANCH ?: ''
+                }
             }
         }
 
@@ -94,6 +103,7 @@ pipeline {
         }
 
         stage('Build Docker image locally') {
+            when { expression { params.BUILD_WEB_IMAGE } }
             steps {
                 sh 'docker build --pull $DOCKER_BUILD_ARGS --file "$DOCKERFILE_PATH" --tag "$IMAGE_NAME:$LOCAL_IMAGE_TAG" "$DOCKER_CONTEXT"'
                 script {
@@ -108,6 +118,33 @@ pipeline {
                         sh 'docker image rm "$IMAGE_NAME:$LOCAL_IMAGE_TAG"'
                     }
                 }
+            }
+        }
+
+        stage('Build Android APK') {
+            when { expression { params.BUILD_ANDROID_APK } }
+            steps {
+                timeout(time: 90, unit: 'MINUTES') {
+                    sh '''
+                        docker build --pull \
+                            --file ci/android/Dockerfile \
+                            --tag frontend_admin-android-builder:local \
+                            ci/android
+                        docker run --rm \
+                            --volumes-from cmc-jenkins \
+                            --volume cmc-jenkins-android-gradle:/root/.gradle \
+                            --volume cmc-jenkins-android-npm:/root/.npm \
+                            --workdir "$WORKSPACE" \
+                            --env-file ci/android/mobile.env \
+                            --env CI=true \
+                            --env EXPO_NO_TELEMETRY=1 \
+                            --env EXPO_NO_DOTENV=1 \
+                            --env BUILD_NUMBER \
+                            frontend_admin-android-builder:local \
+                            bash ci/android/build-apk.sh
+                    '''
+                }
+                archiveArtifacts artifacts: "artifacts/android/${env.BUILD_NUMBER}/*", fingerprint: true, allowEmptyArchive: false
             }
         }
     }
