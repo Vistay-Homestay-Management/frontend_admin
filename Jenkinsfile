@@ -66,6 +66,33 @@ pipeline {
             }
         }
 
+        stage('SonarQube analysis') {
+            steps {
+                withSonarQubeEnv('SonarQube') {
+                    sh '''
+                        set +x
+                        export SONAR_TOKEN="$SONAR_AUTH_TOKEN"
+                        docker run --rm \
+                            --user 0:0 \
+                            --network container:cmc-jenkins \
+                            --volumes-from cmc-jenkins \
+                            --workdir "$WORKSPACE" \
+                            --env SONAR_HOST_URL \
+                            --env SONAR_TOKEN \
+                            sonarsource/sonar-scanner-cli:latest
+                    '''
+                }
+            }
+        }
+
+        stage('SonarQube Quality Gate') {
+            steps {
+                timeout(time: 15, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
         stage('Build Docker image locally') {
             steps {
                 sh 'docker build --pull $DOCKER_BUILD_ARGS --file "$DOCKERFILE_PATH" --tag "$IMAGE_NAME:$LOCAL_IMAGE_TAG" "$DOCKER_CONTEXT"'
