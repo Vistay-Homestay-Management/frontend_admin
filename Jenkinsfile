@@ -88,7 +88,10 @@ pipeline {
                             --workdir "$WORKSPACE" \
                             --env SONAR_HOST_URL \
                             --env SONAR_TOKEN \
-                            sonarsource/sonar-scanner-cli:latest
+                            sonarsource/sonar-scanner-cli:latest \
+                            sonar-scanner \
+                            "-Dsonar.working.directory=$WORKSPACE/.scannerwork" \
+                            "-Dsonar.scanner.metadataFilePath=$WORKSPACE/.scannerwork/report-task.txt"
                     '''
                 }
             }

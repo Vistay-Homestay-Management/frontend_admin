@@ -12,3 +12,4 @@ web-build/
 .vscode/
 .DS_Store
 Thumbs.db
+.scannerwork/

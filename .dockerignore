@@ -9,3 +9,4 @@ apps/mobile/**
 **/.gradle
 **/build
 **/.expo
+.scannerwork/
