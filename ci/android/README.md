@@ -15,7 +15,8 @@ enabled by default. Use **Build with Parameters** to disable either output.
 
 No Android Studio, Expo cloud account, or Android SDK installation on the host is
 needed. `ci/android/Dockerfile` builds a local tool image with Node 24, Java 21,
-Android SDK 37, build tools 37.0.0, and NDK 27.1.12297006. Match these versions to
+Android SDK 37 (package `platforms;android-37.0`), build tools 37.0.0, and NDK
+27.1.12297006. Match these versions to
 the app's React Native/Expo requirements when upgrading dependencies. The first
 build downloads several large toolchains; later builds reuse Docker layers and
 the dedicated npm/Gradle cache volumes.
